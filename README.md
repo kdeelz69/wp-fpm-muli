@@ -60,6 +60,12 @@ From the project root:
 docker compose up -d
 ```
 
+One-command HTTPS bootstrap:
+
+```bash
+sh bootstrap-https.sh
+```
+
 Issue or renew TLS certificates:
 
 ```bash

@@ -1,0 +1,22 @@
+# Docker runtime data
+db_data/
+
+# WordPress runtime content
+html/wp-content/uploads/
+html/.well-known/acme-challenge/*
+!html/.well-known/acme-challenge/.gitkeep
+
+# Certbot runtime data
+certbot/conf/live/
+certbot/conf/archive/
+certbot/conf/renewal/
+certbot/conf/keys/
+certbot/conf/*.pem
+certbot/conf/*.json
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env

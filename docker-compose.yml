@@ -1,0 +1,65 @@
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: wordpress_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - wp_network
+
+  wordpress:
+    image: wordpress:5.9-php7.4-fpm
+    restart: always
+    depends_on:
+      - mariadb
+    environment:
+      WORDPRESS_DB_HOST: mariadb:3306
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+    volumes:
+      - ./html:/var/www/html
+      - ./php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    networks:
+      - wp_network
+
+  nginx:
+    image: nginx:stable
+    restart: always
+    depends_on:
+      - wordpress
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      DOMAIN: ${DOMAIN}
+      WWW_DOMAIN: ${WWW_DOMAIN}
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./html:/var/www/html:ro
+      - ./html/.well-known/acme-challenge:/var/www/html/.well-known/acme-challenge:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    networks:
+      - wp_network
+
+  certbot:
+    image: certbot/certbot
+    entrypoint: ["tail", "-f", "/dev/null"]
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./html/.well-known/acme-challenge:/var/www/html/.well-known/acme-challenge:rw
+    networks:
+      - wp_network
+
+volumes:
+  db_data:
+
+networks:
+  wp_network:
+    driver: bridge

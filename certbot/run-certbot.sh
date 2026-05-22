@@ -15,6 +15,7 @@ if [ ! -f .env ]; then
 fi
 
 set -a
+# shellcheck disable=SC1091
 . ./.env
 set +a
 

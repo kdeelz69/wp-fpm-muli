@@ -16,11 +16,22 @@ if [ -z "${DOMAIN:-}" ] || [ -z "${WWW_DOMAIN:-}" ] || [ -z "${LETSENCRYPT_EMAIL
   exit 1
 fi
 
+if [ "$DOMAIN" = "example.com" ] || [ "$WWW_DOMAIN" = "www.example.com" ]; then
+  echo "Error: .env still has placeholder domains. Update DOMAIN and WWW_DOMAIN first."
+  exit 1
+fi
+
 echo "[1/4] Starting containers..."
 docker compose up -d
 
 echo "[2/4] Waiting for nginx to be ready on HTTP..."
 sleep 5
+
+if ! docker compose ps nginx | grep -Eq "Up|running"; then
+  echo "Error: nginx is not running. Inspect logs:"
+  echo "  docker compose logs --tail=200 nginx"
+  exit 1
+fi
 
 echo "[3/4] Requesting/renewing Let's Encrypt certificate..."
 sh certbot/run-certbot.sh

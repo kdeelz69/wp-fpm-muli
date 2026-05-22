@@ -111,6 +111,8 @@ Visit `https://your-domain` after setting env values.
 - `docker compose logs nginx`
 - `docker compose logs certbot`
 - verify DNS and port access
+- `docker compose exec nginx nginx -t` to validate generated config
+- if Certbot reports `Connection refused`, confirm nginx is `Up` and host/security-group allows inbound `80/tcp`
 
 ---
 

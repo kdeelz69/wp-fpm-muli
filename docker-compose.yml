@@ -47,6 +47,7 @@ services:
       else
         envsubst "$$DOMAIN $$WWW_DOMAIN" < /etc/nginx/templates/http.conf.template > /etc/nginx/conf.d/default.conf;
       fi;
+      nginx -t;
       nginx -g "daemon off;"'
     volumes:
       - ./nginx-http.conf.template:/etc/nginx/templates/http.conf.template:ro

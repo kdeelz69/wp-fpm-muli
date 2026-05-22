@@ -30,6 +30,31 @@ if [ -z "$EMAIL" ]; then
   exit 1
 fi
 
+case "$DOMAIN" in
+  *://*|*/?*|*/*)
+    echo "Error: DOMAIN must be a hostname only (for example: example.com), not a URL."
+    exit 1
+    ;;
+esac
+
+case "$WWW_DOMAIN" in
+  *://*|*/?*|*/*)
+    echo "Error: WWW_DOMAIN must be a hostname only (for example: www.example.com), not a URL."
+    exit 1
+    ;;
+esac
+
+if [ "$DOMAIN" = "example.com" ] || [ "$WWW_DOMAIN" = "www.example.com" ]; then
+  echo "Error: .env still has placeholder domains. Set DOMAIN and WWW_DOMAIN to real values."
+  exit 1
+fi
+
+echo "Checking nginx container state..."
+if ! docker compose ps nginx | grep -Eq "Up|running"; then
+  echo "Error: nginx is not healthy/running. Fix nginx first: docker compose logs --tail=200 nginx"
+  exit 1
+fi
+
 docker compose run --rm --entrypoint certbot certbot certonly \
   --webroot -w /var/www/html \
   -d "$DOMAIN" \

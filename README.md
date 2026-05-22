@@ -48,7 +48,50 @@ Set at least:
 - `DOMAIN` (example: `example.com`)
 - `WWW_DOMAIN` (example: `www.example.com`)
 - `LETSENCRYPT_EMAIL`
+- `WORDPRESS_VERSION` (example: `6.9.4`)
+- `PHP_VERSION` (example: `8.3`)
 - database and WordPress DB credentials
+
+---
+
+## WordPress and PHP version selection
+
+This project now builds the WordPress image tag from:
+
+- `WORDPRESS_VERSION`
+- `PHP_VERSION`
+
+Compose pattern used:
+
+```text
+wordpress:${WORDPRESS_VERSION}-php${PHP_VERSION}-fpm
+```
+
+Recommended defaults:
+
+- `WORDPRESS_VERSION=6.9.4`
+- `PHP_VERSION=8.3`
+
+Practical compatibility guide (for `PHP 7.4` to `8.3`):
+
+| PHP version | Use with WordPress | Recommendation |
+|---|---|---|
+| 8.3 | 6.8+ (fully compatible in current handbook) | Best choice |
+| 8.2 | 6.5+ | Safe choice |
+| 8.1 | 6.4+ | Safe choice |
+| 8.0 | 6.4+ | Acceptable, but older |
+| 7.4 | 6.4+ still supports it | Legacy only, upgrade planned |
+
+Important notes:
+
+- WordPress core support and plugin/theme support are different; newer PHP can still break old plugins.
+- `php7.4` Docker tags are old/unmaintained compared with `8.x`; use only for legacy migrations.
+- If a specific tag combination does not exist on Docker Hub, `docker compose up` will fail to pull.
+
+References:
+
+- WordPress PHP compatibility matrix: https://make.wordpress.org/core/handbook/references/php-compatibility-and-wordpress-versions/
+- WordPress Docker tags: https://hub.docker.com/_/wordpress/tags
 
 ---
 
@@ -97,6 +140,8 @@ Visit `https://your-domain` after setting env values.
    - `DOMAIN=yourdomain.com`
    - `WWW_DOMAIN=www.yourdomain.com`
    - `LETSENCRYPT_EMAIL=you@domain.com`
+   - `WORDPRESS_VERSION=6.9.4`
+   - `PHP_VERSION=8.3`
    - DB passwords/users
 5. Point DNS `A` records (`@` and `www`) to server public IP.
 6. Open inbound ports `80` and `443` in cloud firewall/security group.

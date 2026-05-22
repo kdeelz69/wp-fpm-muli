@@ -9,9 +9,7 @@ server {
     }
 
     location / {
-        root /var/www/html;
-        index index.php index.html;
-        try_files $uri $uri/ /index.php?$args;
+        return 301 http://${WWW_DOMAIN}$request_uri;
     }
 
     location ~ \.php$ {
@@ -34,6 +32,8 @@ server {
     }
 
     location / {
-        return 301 http://${DOMAIN}$request_uri;
+        root /var/www/html;
+        index index.php index.html;
+        try_files $uri $uri/ /index.php?$args;
     }
 }

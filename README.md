@@ -88,6 +88,30 @@ Visit `https://your-domain` after setting env values.
 
 ---
 
+## From-scratch server setup process
+
+1. Install Docker + Compose on server.
+2. Clone repo into server directory (example: `/home/wp-fpm`).
+3. Copy env template: `cp .env.example .env`.
+4. Edit `.env` with real values:
+   - `DOMAIN=yourdomain.com`
+   - `WWW_DOMAIN=www.yourdomain.com`
+   - `LETSENCRYPT_EMAIL=you@domain.com`
+   - DB passwords/users
+5. Point DNS `A` records (`@` and `www`) to server public IP.
+6. Open inbound ports `80` and `443` in cloud firewall/security group.
+7. Start stack: `docker compose up -d`.
+8. Bootstrap HTTPS: `sh bootstrap-https.sh`.
+9. Verify:
+   - `docker compose ps` (all Up)
+   - `docker compose logs --tail=100 nginx`
+   - visit `https://yourdomain.com`
+10. For renewals later:
+    - `sh certbot/run-certbot.sh`
+    - `docker compose restart nginx`
+
+---
+
 ## How it works
 
 - `html/` is mounted into both the `wordpress` and `nginx` containers.

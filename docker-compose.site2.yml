@@ -10,6 +10,8 @@ services:
       MYSQL_PASSWORD: ${SITE2_MYSQL_PASSWORD}
     volumes:
       - db_data_site2:/var/lib/mysql
+    ports:
+      - "${SITE2_MYSQL_HOST_PORT:-3308}:3306"
     networks:
       - site2_network
 

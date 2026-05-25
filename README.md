@@ -9,6 +9,11 @@ This repository contains a minimal public-ready stack for running WordPress in D
 - `nginx` web server with HTTPS support
 - `certbot` for obtaining and renewing Let's Encrypt certificates
 
+It now supports two deployment modes:
+
+- Single-site mode (original setup, unchanged)
+- Multi-site mode (two fully separate WordPress installs, same server, not WordPress multisite)
+
 > The project is intentionally configured as a reusable starter. It does not ship WordPress core content in `html/` and it uses placeholder domain names that must be updated before deployment.
 
 ---
@@ -16,8 +21,12 @@ This repository contains a minimal public-ready stack for running WordPress in D
 ## Repository structure
 
 - `docker-compose.yml` - Docker Compose stack definition
+- `docker-compose.multi.yml` - two-site stack definition
 - `nginx.conf.template` - nginx template rendered from env variables
+- `nginx-multi.conf.template` - nginx template for two-site HTTPS routing
+- `nginx-multi-http.conf.template` - nginx template for two-site HTTP routing
 - `certbot/run-certbot.sh` - certificate issuance script
+- `certbot/run-certbot-multi.sh` - certificate issuance for two-site mode
 - `.env.example` - required environment variables
 - `certbot/conf/` - certificate storage directory (runtime data)
 - `html/` - WordPress site volume mount point
@@ -128,6 +137,52 @@ docker compose restart nginx
 ```
 
 Visit `https://your-domain` after setting env values.
+
+---
+
+## Choose your mode
+
+### Mode A: Single website (existing behavior)
+
+Use the existing workflow:
+
+```bash
+docker compose up -d
+sh bootstrap-https.sh
+```
+
+This uses:
+
+- `docker-compose.yml`
+- `DOMAIN` and `WWW_DOMAIN`
+
+### Mode B: Two separate websites on same server (not multisite)
+
+Use the dedicated multi-file stack:
+
+```bash
+docker compose -f docker-compose.multi.yml up -d
+sh certbot/run-certbot-multi.sh
+docker compose -f docker-compose.multi.yml restart nginx_multi
+```
+
+This mode runs:
+
+- `wordpress_site1` + `mariadb_site1` with content in `html/site1`
+- `wordpress_site2` + `mariadb_site2` with content in `html/site2`
+- one public nginx (`nginx_multi`) on ports `80/443` routing by hostname
+
+Required multi-mode env variables:
+
+- `SITE1_DOMAIN`, `SITE1_WWW_DOMAIN`
+- `SITE2_DOMAIN`, `SITE2_WWW_DOMAIN`
+- `SITE1_*` DB credentials
+- `SITE2_*` DB credentials
+
+Important:
+
+- Do not run single-site and multi-site stacks at the same time on one host because both need ports `80` and `443`.
+- This is two independent WordPress installs, not WP multisite.
 
 ---
 

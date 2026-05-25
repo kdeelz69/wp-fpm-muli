@@ -40,6 +40,8 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       WWW_DOMAIN: ${WWW_DOMAIN}
+      SITE2_DOMAIN: ${SITE2_DOMAIN}
+      SITE2_WWW_DOMAIN: ${SITE2_WWW_DOMAIN}
     command:
       - /bin/sh
       - -c
@@ -49,12 +51,22 @@ services:
         else
           envsubst '$$DOMAIN $$WWW_DOMAIN' < /etc/nginx/templates/http.conf.template > /etc/nginx/conf.d/default.conf;
         fi;
+        if [ -n "$SITE2_DOMAIN" ] && [ -n "$SITE2_WWW_DOMAIN" ]; then
+          if [ -f /etc/letsencrypt/live/$SITE2_DOMAIN/fullchain.pem ] && [ -f /etc/letsencrypt/live/$SITE2_DOMAIN/privkey.pem ]; then
+            envsubst '$$SITE2_DOMAIN $$SITE2_WWW_DOMAIN' < /etc/nginx/templates/site2-ssl.inc.template >> /etc/nginx/conf.d/default.conf;
+          else
+            envsubst '$$SITE2_DOMAIN $$SITE2_WWW_DOMAIN' < /etc/nginx/templates/site2-http.inc.template >> /etc/nginx/conf.d/default.conf;
+          fi;
+        fi;
         nginx -t;
         nginx -g 'daemon off;'
     volumes:
       - ./nginx-http.conf.template:/etc/nginx/templates/http.conf.template:ro
       - ./nginx.conf.template:/etc/nginx/templates/ssl.conf.template:ro
+      - ./nginx-site2-http.inc.template:/etc/nginx/templates/site2-http.inc.template:ro
+      - ./nginx-site2-ssl.inc.template:/etc/nginx/templates/site2-ssl.inc.template:ro
       - ./html:/var/www/html:ro
+      - ./html/site2:/var/www/site2:ro
       - ./html/.well-known/acme-challenge:/var/www/html/.well-known/acme-challenge:ro
       - ./certbot/conf:/etc/letsencrypt:ro
     networks:

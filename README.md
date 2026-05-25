@@ -20,7 +20,8 @@ It supports the standard single-site stack and an optional incremental second-si
 - `docker-compose.yml` - Docker Compose stack definition
 - `docker-compose.site2.yml` - incremental second-site stack (no public ports)
 - `nginx.conf.template` - nginx template rendered from env variables
-- `certbot/run-certbot.sh` - certificate issuance script
+- `certbot/run-certbot.sh` - certificate issuance script for primary site
+- `certbot/run-certbot-site2.sh` - certificate issuance script for incremental site2
 - `.env.example` - required environment variables
 - `certbot/conf/` - certificate storage directory (runtime data)
 - `html/` - WordPress site volume mount point
@@ -165,6 +166,7 @@ This mode runs:
 
 Required env variables:
 
+- `SITE2_DOMAIN`, `SITE2_WWW_DOMAIN`
 - `SITE2_WORDPRESS_VERSION`, `SITE2_PHP_VERSION`
 - `SITE2_SHARED_NETWORK`
 - `SITE2_*` DB credentials
@@ -172,7 +174,10 @@ Required env variables:
 Important:
 
 - Existing nginx/site1 stack remains the public entrypoint on ports `80/443`.
-- Add site2 server blocks in your existing nginx templates and route PHP to `wordpress_site2:9000`.
+- Site2 HTTP/HTTPS routing is appended automatically by `docker-compose.yml` when `SITE2_DOMAIN` and `SITE2_WWW_DOMAIN` are set.
+- For HTTPS on site2, run:
+  - `sh certbot/run-certbot-site2.sh`
+  - `docker compose restart nginx`
 
 ---
 

@@ -268,7 +268,7 @@ check_site_dns() {
   while ! is_ipv4 "$server_ip"; do
     echo "Error: expected an IP address like 52.221.194.219, not '$server_ip'."
     server_ip="$(prompt_required "Enter server public IP")"
-  fi
+  done
 
   echo
   echo "Loaded site DNS values:"

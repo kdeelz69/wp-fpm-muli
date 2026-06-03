@@ -47,6 +47,13 @@ valid_project_name() {
   esac
 }
 
+valid_db_identifier() {
+  case "$1" in
+    ""|[!abcdefghijklmnopqrstuvwxyz_]*|*[!abcdefghijklmnopqrstuvwxyz0123456789_]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 prompt_required() {
   label="$1"
   value=""
@@ -153,11 +160,26 @@ load_env_value() {
   sed -n "s/^$key=//p" "$file" | tail -n 1 | sed 's/^"//; s/"$//'
 }
 
+sql_escape() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
 ensure_proxy_env() {
   if [ ! -f "$PROXY_DIR/.env" ]; then
     email="$(prompt_required "Default SSL certificate email")"
-    printf "DEFAULT_EMAIL=%s\n" "$email" > "$PROXY_DIR/.env"
+    root_password="$(prompt_required "Shared MariaDB root password")"
+    {
+      printf "DEFAULT_EMAIL=%s\n" "$email"
+      printf "SHARED_MYSQL_ROOT_PASSWORD=%s\n" "$root_password"
+    } > "$PROXY_DIR/.env"
     echo "Created proxy/.env."
+    return 0
+  fi
+
+  if ! grep -q '^SHARED_MYSQL_ROOT_PASSWORD=' "$PROXY_DIR/.env"; then
+    root_password="$(prompt_required "Shared MariaDB root password")"
+    printf "SHARED_MYSQL_ROOT_PASSWORD=%s\n" "$root_password" >> "$PROXY_DIR/.env"
+    echo "Added SHARED_MYSQL_ROOT_PASSWORD to proxy/.env."
   fi
 }
 
@@ -179,8 +201,10 @@ ensure_site_dir() {
 
 write_site_env_interactive() {
   site_folder="$1"
+  project_name="$2"
   site_dir="$ROOT_DIR/sites/$site_folder"
   env_file="$site_dir/.env"
+  default_db_prefix="$(printf "%s" "$project_name" | tr '-' '_')"
 
   echo
   echo "Enter website details for sites/$site_folder."
@@ -194,8 +218,17 @@ write_site_env_interactive() {
   admin_email="$(prompt_default "WordPress admin email" "$email")"
   wp_version="$(prompt_default "WordPress version" "6.9.4")"
   php_version="$(prompt_default "PHP version" "8.3")"
-  mysql_root_password="$(prompt_required "MariaDB root password")"
-  mysql_password="$(prompt_required "MariaDB WordPress user password")"
+  db_name="$(prompt_default "Website database name" "${default_db_prefix}_db")"
+  while ! valid_db_identifier "$db_name"; do
+    echo "Use lowercase letters, numbers, and underscores. Start with a letter or underscore."
+    db_name="$(prompt_required "Website database name")"
+  done
+  db_user="$(prompt_default "Website database username" "${default_db_prefix}_user")"
+  while ! valid_db_identifier "$db_user"; do
+    echo "Use lowercase letters, numbers, and underscores. Start with a letter or underscore."
+    db_user="$(prompt_required "Website database username")"
+  done
+  db_password="$(prompt_required "Website database password")"
 
   cat > "$env_file" <<EOF
 DOMAIN=$domain
@@ -211,14 +244,9 @@ WORDPRESS_ADMIN_USER=$admin_user
 WORDPRESS_ADMIN_PASSWORD=$admin_password
 WORDPRESS_ADMIN_EMAIL=$admin_email
 
-MYSQL_ROOT_PASSWORD=$mysql_root_password
-MYSQL_DATABASE=wordpress
-MYSQL_USER=wordpress
-MYSQL_PASSWORD=$mysql_password
-
-WORDPRESS_DB_NAME=wordpress
-WORDPRESS_DB_USER=wordpress
-WORDPRESS_DB_PASSWORD=$mysql_password
+WORDPRESS_DB_NAME=$db_name
+WORDPRESS_DB_USER=$db_user
+WORDPRESS_DB_PASSWORD=$db_password
 EOF
 
   echo "Saved $env_file."
@@ -226,23 +254,24 @@ EOF
 
 has_placeholder_values() {
   env_file="$1"
-  grep -Eq '^(DOMAIN=example\.com|WWW_DOMAIN=www\.example\.com|WORDPRESS_ADMIN_PASSWORD=admin_password_change_me|MYSQL_ROOT_PASSWORD=rootpassword_change_me|MYSQL_PASSWORD=wordpress_db_pass_change_me)' "$env_file"
+  grep -Eq '^(DOMAIN=example\.com|WWW_DOMAIN=www\.example\.com|WORDPRESS_ADMIN_PASSWORD=admin_password_change_me|WORDPRESS_DB_PASSWORD=wordpress_db_pass_change_me)' "$env_file"
 }
 
 ensure_site_env() {
   site_folder="$1"
+  project_name="$2"
   site_dir="$ROOT_DIR/sites/$site_folder"
   env_file="$site_dir/.env"
 
   if [ ! -f "$env_file" ]; then
-    write_site_env_interactive "$site_folder"
+    write_site_env_interactive "$site_folder" "$project_name"
     return 0
   fi
 
   if has_placeholder_values "$env_file"; then
     echo "sites/$site_folder/.env still contains placeholder values."
     if confirm "Replace it using guided questions now?"; then
-      write_site_env_interactive "$site_folder"
+      write_site_env_interactive "$site_folder" "$project_name"
     else
       echo "Edit $env_file manually, then run this script again."
       exit 1
@@ -296,8 +325,71 @@ check_site_dns() {
 
 start_proxy() {
   ensure_proxy_env
-  echo "Starting main public web entry..."
+  echo "Starting main public web entry and shared database..."
   (cd "$PROXY_DIR" && docker compose up -d)
+}
+
+create_site_database() {
+  site_folder="$1"
+  project_name="$2"
+  env_file="$ROOT_DIR/sites/$site_folder/.env"
+
+  ensure_proxy_env
+
+  db_name="$(load_env_value "$env_file" WORDPRESS_DB_NAME)"
+  db_user="$(load_env_value "$env_file" WORDPRESS_DB_USER)"
+  db_password="$(load_env_value "$env_file" WORDPRESS_DB_PASSWORD)"
+  root_password="$(load_env_value "$PROXY_DIR/.env" SHARED_MYSQL_ROOT_PASSWORD)"
+
+  if ! valid_db_identifier "$db_name"; then
+    echo "Error: WORDPRESS_DB_NAME must use lowercase letters, numbers, and underscores."
+    exit 1
+  fi
+
+  if ! valid_db_identifier "$db_user"; then
+    echo "Error: WORDPRESS_DB_USER must use lowercase letters, numbers, and underscores."
+    exit 1
+  fi
+
+  if [ -z "$db_password" ] || [ -z "$root_password" ]; then
+    echo "Error: missing database password values."
+    exit 1
+  fi
+
+  attempts=0
+  until (cd "$PROXY_DIR" && docker compose exec -T mariadb mariadb-admin ping -uroot -p"$root_password" --silent) >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 30 ]; then
+      echo "Error: shared MariaDB is not ready."
+      echo "Check logs:"
+      echo "  cd proxy && docker compose logs --tail=100 mariadb"
+      exit 1
+    fi
+    echo "Waiting for shared MariaDB..."
+    sleep 3
+  done
+
+  escaped_user="$(sql_escape "$db_user")"
+  escaped_password="$(sql_escape "$db_password")"
+
+  echo "Creating or updating database for this website in shared MariaDB..."
+  sql="
+CREATE DATABASE IF NOT EXISTS \`$db_name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$escaped_user'@'%' IDENTIFIED BY '$escaped_password';
+ALTER USER '$escaped_user'@'%' IDENTIFIED BY '$escaped_password';
+GRANT ALL PRIVILEGES ON \`$db_name\`.* TO '$escaped_user'@'%';
+FLUSH PRIVILEGES;
+"
+
+  if ! printf "%s" "$sql" | (cd "$PROXY_DIR" && docker compose exec -T mariadb mariadb -uroot -p"$root_password"); then
+    echo "Error: could not create database/user in shared MariaDB."
+    echo "Check the shared database status:"
+    echo "  cd proxy && docker compose ps mariadb"
+    echo "  cd proxy && docker compose logs --tail=100 mariadb"
+    exit 1
+  fi
+
+  echo "Database ready: $db_name, user: $db_user"
 }
 
 restart_acme() {
@@ -323,30 +415,30 @@ deploy_site() {
   fi
 
   ensure_site_dir "$site_folder"
-  ensure_site_env "$site_folder"
+  ensure_site_env "$site_folder" "$project_name"
   check_site_dns "$site_folder"
 
   if [ "$start_proxy_flag" = "--start-proxy" ]; then
     start_proxy
   fi
 
+  create_site_database "$site_folder" "$project_name"
+
   echo "Starting site stack: $project_name"
   if ! (cd "$ROOT_DIR/sites/$site_folder" && docker compose -p "$project_name" up -d); then
     echo
     echo "Website stack did not finish starting."
     echo
-    echo "Most common cause during a fresh deployment:"
-    echo "  The database volume already exists with an old password, but .env now has a new password."
-    echo
     echo "Check the installer logs:"
     echo "  cd sites/$site_folder && docker compose -p $project_name logs --tail=200 wpcli"
     echo
-    echo "If the logs say 'Access denied for user', and this is a fresh failed deployment with no real site data yet, reset only this website:"
-    echo "  cd sites/$site_folder"
-    echo "  docker compose -p $project_name down -v"
-    echo "  docker compose -p $project_name up -d"
+    echo "If the logs say 'Access denied for user', check this website's database values:"
+    echo "  sites/$site_folder/.env"
     echo
-    echo "Do not use down -v on a live website unless you intend to delete that website's database."
+    echo "Then rerun this script so it creates or updates that database user in shared MariaDB:"
+    echo "  sh deploy-site.sh $site_folder $project_name"
+    echo
+    echo "Do not use down -v in the proxy folder on a live server unless you intend to delete all shared database data."
     exit 1
   fi
 

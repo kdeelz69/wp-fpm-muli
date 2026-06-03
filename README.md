@@ -1,28 +1,30 @@
 # WordPress Multi-Site Docker Deployment
 
-Deploy multiple WordPress FPM sites on one server without the second deployment
-changing the first site.
+Deploy multiple WordPress FPM sites on one small server without the second
+deployment changing the first site.
 
-This repo uses:
+This layout is tuned for a 2 GB RAM / 2 CPU server:
 
 - one main public web entry for ports `80` and `443`
-- one isolated WordPress stack per website
-- one MariaDB volume per website
-- automatic HTTPS certificates through ZeroSSL
+- one SSL certificate service using ZeroSSL
+- one shared MariaDB container
+- one separate database and database user per website
+- one WordPress container per website
+- one internal nginx container per website
 
 ## Folder Layout
 
 ```text
-proxy/                  main public web entry + ZeroSSL certificate service
+proxy/                  main public web entry, SSL service, shared MariaDB
 sites/site-template/    template copied for each WordPress site
-deploy-site.sh          helper script to create and start site stacks
+deploy-site.sh          guided deployment script
 ```
 
 The main public web entry is the only part exposed to the internet. It receives
 traffic for all domains and sends each request to the correct WordPress website.
 
-The old root `docker-compose.yml` is still kept for single-site testing, but for
-two or more websites use the `proxy/` and `sites/` layout.
+MariaDB is shared to reduce RAM usage. Each website still gets its own database
+and database user inside the shared MariaDB container.
 
 ## Requirements
 
@@ -42,7 +44,7 @@ second.com       -> server public IP
 www.second.com   -> server public IP
 ```
 
-## Deploy First Site
+## Deploy First Website
 
 From the repository root:
 
@@ -58,15 +60,15 @@ Choose:
 
 The script asks for:
 
-- site folder, for example `site-one`
+- website folder, for example `site-one`
 - Compose project name, for example `site_one`
 - domain and `www` domain
 - primary domain
 - SSL certificate email
 - WordPress title and admin login
-- database passwords
+- website database name, username, and password
 
-For the first site, answer yes when it asks:
+For the first website, answer yes when it asks:
 
 ```text
 Set up the main public web entry too? Choose yes for the first website on this server
@@ -86,14 +88,7 @@ sites/site-one/.env
 sites/site-one/
 ```
 
-If the site `.env` already exists with placeholder values, the script asks if it
-should replace it using guided questions. You can also edit it manually:
-
-```bash
-nano sites/site-one/.env
-```
-
-Set real values:
+Example site `.env` values:
 
 ```env
 DOMAIN=example.com
@@ -109,20 +104,9 @@ WORDPRESS_ADMIN_USER=admin
 WORDPRESS_ADMIN_PASSWORD=change_this_password
 WORDPRESS_ADMIN_EMAIL=you@example.com
 
-MYSQL_ROOT_PASSWORD=change_this_root_password
-MYSQL_DATABASE=wordpress
-MYSQL_USER=wordpress
-MYSQL_PASSWORD=change_this_db_password
-
-WORDPRESS_DB_NAME=wordpress
-WORDPRESS_DB_USER=wordpress
+WORDPRESS_DB_NAME=site_one_db
+WORDPRESS_DB_USER=site_one_user
 WORDPRESS_DB_PASSWORD=change_this_db_password
-```
-
-Start the proxy and first site:
-
-```bash
-sh deploy-site.sh site-one site_one --start-proxy
 ```
 
 During deployment the script checks DNS. If it says the domain does not resolve
@@ -132,9 +116,6 @@ to the server IP yet, fix your DNS `A` records first:
 example.com      -> server public IP
 www.example.com  -> server public IP
 ```
-
-Containers can start before DNS is correct, but HTTPS and public browser access
-will not work until DNS points to the server.
 
 When the script asks for the server public IP, press Enter to use the detected
 IP unless you know it is wrong. Do not enter the domain name in that prompt.
@@ -149,13 +130,7 @@ cd ../sites/site-one
 docker compose -p site_one ps
 ```
 
-Visit:
-
-```text
-https://www.example.com
-```
-
-## Deploy Second Site Later
+## Deploy Second Website Later
 
 Do not create another main public web entry for the second website. The first
 website already started it, and the same entry is reused for every website on
@@ -173,74 +148,45 @@ Choose:
 1) Add a new website or update an existing website
 ```
 
-Use a different site folder and Compose project name:
+Use a different website folder, Compose project name, database name, and
+database user:
 
 ```text
 Site folder: site-two
 Compose project name: site_two
+Website database name: site_two_db
+Website database username: site_two_user
 ```
 
-Answer no when it asks to set up the main public web entry, because it is
-already running from the first site.
-
-Expected answer for the second website:
+Answer no when it asks to set up the main public web entry:
 
 ```text
 Set up the main public web entry too? Choose yes for the first website on this server [y/N]: N
 ```
 
-You can also run the direct command:
+You can also run:
 
 ```bash
 sh deploy-site.sh site-two site_two
 ```
 
-Edit the second site settings manually if needed:
-
-```bash
-nano sites/site-two/.env
-```
-
-Example:
-
-```env
-DOMAIN=second.com
-WWW_DOMAIN=www.second.com
-PRIMARY_DOMAIN=www.second.com
-LETSENCRYPT_EMAIL=you@example.com
-
-WORDPRESS_URL=https://www.second.com
-WORDPRESS_SITE_TITLE="Second Site"
-WORDPRESS_ADMIN_USER=admin
-WORDPRESS_ADMIN_PASSWORD=change_this_password
-WORDPRESS_ADMIN_EMAIL=you@example.com
-
-MYSQL_ROOT_PASSWORD=change_this_root_password
-MYSQL_PASSWORD=change_this_db_password
-WORDPRESS_DB_PASSWORD=change_this_db_password
-```
-
-Start only the second site:
-
-```bash
-sh deploy-site.sh site-two site_two
-```
-
-This does not recreate or modify `site_one` containers, files, or database
-volumes. The main public web entry detects the new website container and updates
-routing.
+This does not recreate or modify `site_one` containers, files, or database data.
+The script creates a new database and database user inside the shared MariaDB
+container for `site_two`.
 
 ## Important Rules
 
-- Use a unique folder per site: `site-one`, `site-two`, etc.
-- Use a unique Compose project per site: `site_one`, `site_two`, etc.
-- Do not publish ports `80` or `443` from individual site stacks.
 - Start the main public web entry once for the first website, then leave it running.
 - Do not create a second main public web entry for the second website.
-- Do not reuse the same database passwords between sites unless you intentionally want that.
+- Use a unique folder per website: `site-one`, `site-two`, etc.
+- Use a unique Compose project per website: `site_one`, `site_two`, etc.
+- Use a unique database name and database user per website.
+- Do not publish ports `80` or `443` from individual website stacks.
+- Do not expose MariaDB ports publicly.
+- Do not reuse database passwords between websites unless you intentionally want that.
 - Make sure `DOMAIN`, `WWW_DOMAIN`, and `WORDPRESS_URL` match the real domain.
 
-## Update One Site
+## Update One Website
 
 Update only site one:
 
@@ -258,7 +204,7 @@ docker compose -p site_two pull
 docker compose -p site_two up -d
 ```
 
-## Stop One Site
+## Stop One Website
 
 Stop site two without touching site one:
 
@@ -267,25 +213,26 @@ cd sites/site-two
 docker compose -p site_two down
 ```
 
-Do not add `-v` unless you want to delete that site's database volume.
+Do not add `-v` unless you understand exactly which volumes will be removed.
+The shared MariaDB data is in the `proxy/` stack, not the site stack.
 
 ## Logs
 
-Main public web entry logs:
+Main public web entry and shared database logs:
 
 ```bash
 cd proxy
 docker compose logs --tail=100 nginx-proxy
 docker compose logs --tail=100 acme-companion
+docker compose logs --tail=100 mariadb
 ```
 
-Site logs:
+Website logs:
 
 ```bash
 cd sites/site-one
 docker compose -p site_one logs --tail=100 nginx
 docker compose -p site_one logs --tail=100 wordpress
-docker compose -p site_one logs --tail=100 mariadb
 docker compose -p site_one logs --tail=100 wpcli
 ```
 
@@ -325,35 +272,35 @@ Check:
 - DNS points to this server
 - ports `80` and `443` are open
 - `DOMAIN` and `WWW_DOMAIN` are hostnames only, not URLs
-- the site nginx container is running
+- the website nginx container is running
 
 If WordPress does not install:
 
 ```bash
 cd sites/site-one
 docker compose -p site_one logs --tail=200 wpcli
-docker compose -p site_one logs --tail=200 mariadb
+
+cd ../../proxy
+docker compose logs --tail=200 mariadb
 ```
 
-If `wpcli` shows `Access denied for user 'wordpress'`, the database volume was
-probably created with an old password. For a fresh failed deployment with no real
-site data yet, reset only that website:
-
-```bash
-cd sites/site-one
-docker compose -p site_one down -v
-docker compose -p site_one up -d
-```
-
-Before restarting, make sure these values in that site's `.env` match:
+If `wpcli` shows `Access denied for user`, check that the site's `.env` database
+values are correct:
 
 ```env
-MYSQL_PASSWORD=your_db_password
+WORDPRESS_DB_NAME=site_one_db
+WORDPRESS_DB_USER=site_one_user
 WORDPRESS_DB_PASSWORD=your_db_password
 ```
 
-Do not run `down -v` on a live website unless you intend to delete that
-website's database.
+Then rerun the deploy script so it creates or updates that database user:
+
+```bash
+sh deploy-site.sh site-one site_one
+```
+
+Do not run `docker compose down -v` in the `proxy/` folder on a live server
+unless you intend to delete the shared MariaDB data for all websites.
 
 If image pull fails, check that this Docker tag exists:
 
@@ -365,24 +312,4 @@ Example:
 
 ```text
 wordpress:6.9.4-php8.3-fpm
-```
-
-## Manual Commands
-
-The helper script replaces this manual flow:
-
-```bash
-mkdir -p sites/site-one
-cp -a sites/site-template/. sites/site-one/
-cd sites/site-one
-cp .env.example .env
-nano .env
-docker compose -p site_one up -d
-```
-
-Use the script instead:
-
-```bash
-sh deploy-site.sh site-one site_one --start-proxy
-sh deploy-site.sh site-two site_two
 ```

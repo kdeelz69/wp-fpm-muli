@@ -33,13 +33,33 @@ services:
     networks:
       - webproxy
 
+  mariadb:
+    image: mariadb:10.11
+    container_name: shared_mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SHARED_MYSQL_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - shareddb
+
 volumes:
   certs:
   vhost:
   html:
   acme:
+  db_data:
 
 networks:
   webproxy:
     name: webproxy
+    driver: bridge
+  shareddb:
+    name: shareddb
     driver: bridge

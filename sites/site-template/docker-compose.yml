@@ -1,29 +1,9 @@
 services:
-  mariadb:
-    image: mariadb:10.11
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    volumes:
-      - db_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    networks:
-      - site_network
-
   wordpress:
     image: wordpress:${WORDPRESS_VERSION}-php${PHP_VERSION}-fpm
     restart: always
-    depends_on:
-      - mariadb
     environment:
-      WORDPRESS_DB_HOST: mariadb:3306
+      WORDPRESS_DB_HOST: shared_mariadb:3306
       WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
       WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
       WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
@@ -32,17 +12,16 @@ services:
       - ./php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
     networks:
       - site_network
+      - shareddb
 
   wpcli:
     image: wordpress:cli-php${PHP_VERSION}
     restart: "no"
     depends_on:
-      mariadb:
-        condition: service_healthy
       wordpress:
         condition: service_started
     environment:
-      WORDPRESS_DB_HOST: mariadb:3306
+      WORDPRESS_DB_HOST: shared_mariadb:3306
       WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
       WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
       WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
@@ -110,6 +89,7 @@ services:
       - ./html:/var/www/html
     networks:
       - site_network
+      - shareddb
 
   nginx:
     image: nginx:stable
@@ -141,11 +121,10 @@ services:
       - site_network
       - webproxy
 
-volumes:
-  db_data:
-
 networks:
   site_network:
     driver: bridge
   webproxy:
+    external: true
+  shareddb:
     external: true

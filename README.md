@@ -251,12 +251,17 @@ Menu options:
 2) Start the main public web entry only
 3) Check if a website domain points to this server
 4) Retry SSL certificate after fixing DNS
-5) Show running status
+5) Fix WordPress upload/import permissions
+6) Show running status
 0) Exit
 ```
 
 Use option `3` after changing DNS records. Use option `4` after DNS is correct
 if HTTPS was previously failing.
+
+Use option `5` if plugins such as All-in-One WP Migration cannot read or write
+backup/import files. It safely fixes writable WordPress folders using
+`www-data:www-data`, not `777`.
 
 ## Troubleshooting
 
@@ -301,6 +306,22 @@ sh deploy-site.sh site-one site_one
 
 Do not run `docker compose down -v` in the `proxy/` folder on a live server
 unless you intend to delete the shared MariaDB data for all websites.
+
+If All-in-One WP Migration or another plugin reports that it cannot open a file
+inside `wp-content`, fix permissions from the menu:
+
+```bash
+sh deploy-site.sh
+```
+
+Choose:
+
+```text
+5) Fix WordPress upload/import permissions
+```
+
+The deploy script also runs this permission repair automatically after a
+successful website deployment.
 
 If the deploy script says `Access denied for user 'root'@'localhost'` while
 creating the database, the shared MariaDB root login is not ready yet or the

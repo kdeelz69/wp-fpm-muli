@@ -401,6 +401,47 @@ restart_acme() {
   echo "  cd proxy && docker compose logs --tail=200 acme-companion"
 }
 
+fix_wordpress_permissions() {
+  site_folder="$1"
+  project_name="$2"
+  site_dir="$ROOT_DIR/sites/$site_folder"
+
+  if [ ! -d "$site_dir" ]; then
+    echo "Error: missing site folder: sites/$site_folder"
+    exit 1
+  fi
+
+  echo "Fixing WordPress writable folder permissions for $project_name..."
+  if ! (cd "$site_dir" && docker compose -p "$project_name" exec -T wordpress sh -lc '
+set -eu
+mkdir -p /var/www/html/wp-content/uploads
+mkdir -p /var/www/html/wp-content/upgrade
+mkdir -p /var/www/html/wp-content/ai1wm-backups
+if [ -d /var/www/html/wp-content/plugins/all-in-one-wp-migration ]; then
+  mkdir -p /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage
+fi
+chown -R www-data:www-data /var/www/html/wp-content/uploads
+chown -R www-data:www-data /var/www/html/wp-content/upgrade
+chown -R www-data:www-data /var/www/html/wp-content/ai1wm-backups
+if [ -d /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage ]; then
+  chown -R www-data:www-data /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage
+fi
+find /var/www/html/wp-content/uploads /var/www/html/wp-content/upgrade /var/www/html/wp-content/ai1wm-backups -type d -exec chmod 775 {} \;
+find /var/www/html/wp-content/uploads /var/www/html/wp-content/upgrade /var/www/html/wp-content/ai1wm-backups -type f -exec chmod 664 {} \;
+if [ -d /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage ]; then
+  find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type d -exec chmod 775 {} \;
+  find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type f -exec chmod 664 {} \;
+fi
+'); then
+    echo "Error: could not fix permissions. Make sure the website containers are running."
+    echo "Check status:"
+    echo "  cd sites/$site_folder && docker compose -p $project_name ps"
+    exit 1
+  fi
+
+  echo "Permissions fixed."
+}
+
 deploy_site() {
   site_folder="$1"
   project_name="$2"
@@ -444,6 +485,8 @@ deploy_site() {
     exit 1
   fi
 
+  fix_wordpress_permissions "$site_folder" "$project_name"
+
   echo
   echo "Done."
   echo "Status commands:"
@@ -484,6 +527,13 @@ check_dns_menu() {
   check_site_dns "$site_folder"
 }
 
+fix_permissions_menu() {
+  site_folder="$(prompt_required "Website folder, for example site-one")"
+  default_project="$(printf "%s" "$site_folder" | tr '-' '_')"
+  project_name="$(prompt_default "Compose project name" "$default_project")"
+  fix_wordpress_permissions "$site_folder" "$project_name"
+}
+
 show_status() {
   echo
   echo "Main public web entry:"
@@ -501,7 +551,8 @@ menu() {
     echo "2) Start the main public web entry only"
     echo "3) Check if a website domain points to this server"
     echo "4) Retry SSL certificate after fixing DNS"
-    echo "5) Show running status"
+    echo "5) Fix WordPress upload/import permissions"
+    echo "6) Show running status"
     echo "0) Exit"
     printf "Choose: "
     IFS= read -r choice
@@ -511,7 +562,8 @@ menu() {
       2) start_proxy ;;
       3) check_dns_menu ;;
       4) restart_acme ;;
-      5) show_status ;;
+      5) fix_permissions_menu ;;
+      6) show_status ;;
       0) exit 0 ;;
       *) echo "Unknown option." ;;
     esac

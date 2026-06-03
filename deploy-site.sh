@@ -44,8 +44,8 @@ case "$SITE_FOLDER" in
 esac
 
 case "$PROJECT_NAME" in
-  ""|*[^a-zA-Z0-9_-]*)
-    echo "Error: compose-project may only contain letters, numbers, underscores, and hyphens."
+  ""|[!abcdefghijklmnopqrstuvwxyz0123456789]*|*[!abcdefghijklmnopqrstuvwxyz0123456789_-]*)
+    echo "Error: compose-project must start with a lowercase letter or number and may only contain lowercase letters, numbers, underscores, and hyphens."
     exit 1
     ;;
 esac

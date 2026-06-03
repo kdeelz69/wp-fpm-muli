@@ -25,6 +25,14 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+is_ipv4() {
+  case "$1" in
+    *[!0123456789.]*|""|*.*.*.*.*) return 1 ;;
+    *.*.*.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 valid_site_folder() {
   case "$1" in
     ""|*/*|*\\*|.*) return 1 ;;
@@ -254,9 +262,19 @@ check_site_dns() {
   if [ -z "$server_ip" ]; then
     server_ip="$(prompt_required "Could not auto-detect public IP. Enter server public IP")"
   else
-    server_ip="$(prompt_default "Server public IP for DNS check" "$server_ip")"
+    server_ip="$(prompt_default "Server public IP for DNS check. Press Enter to use detected IP" "$server_ip")"
   fi
 
+  while ! is_ipv4 "$server_ip"; do
+    echo "Error: expected an IP address like 52.221.194.219, not '$server_ip'."
+    server_ip="$(prompt_required "Enter server public IP")"
+  fi
+
+  echo
+  echo "Loaded site DNS values:"
+  echo "  DOMAIN=$domain"
+  echo "  WWW_DOMAIN=$www_domain"
+  echo "  Expected server IP=$server_ip"
   echo
   echo "Checking DNS. If you changed DNS recently, propagation can take time."
   ok=1
@@ -278,12 +296,12 @@ check_site_dns() {
 
 start_proxy() {
   ensure_proxy_env
-  echo "Starting shared proxy..."
+  echo "Starting main public web entry..."
   (cd "$PROXY_DIR" && docker compose up -d)
 }
 
 restart_acme() {
-  echo "Restarting Let's Encrypt companion..."
+  echo "Retrying SSL certificate service..."
   (cd "$PROXY_DIR" && docker compose restart acme-companion)
   echo "Check logs with:"
   echo "  cd proxy && docker compose logs --tail=200 acme-companion"
@@ -317,7 +335,7 @@ deploy_site() {
 
   echo
   echo "Done."
-  echo "Status:"
+  echo "Status commands:"
   echo "  cd proxy && docker compose ps"
   echo "  cd sites/$site_folder && docker compose -p $project_name ps"
 }
@@ -338,7 +356,7 @@ guided_deploy() {
   done
 
   start_proxy_flag=""
-  if confirm "Start or update shared proxy too? Use yes for the first site"; then
+  if confirm "Set up the main public web entry too? Choose yes for the first website on this server"; then
     start_proxy_flag="--start-proxy"
   fi
 
@@ -357,22 +375,22 @@ check_dns_menu() {
 
 show_status() {
   echo
-  echo "Shared proxy:"
+  echo "Main public web entry:"
   (cd "$PROXY_DIR" && docker compose ps) || true
   echo
-  echo "Site folders:"
+  echo "Website folders:"
   find "$ROOT_DIR/sites" -mindepth 1 -maxdepth 1 -type d ! -name site-template -print 2>/dev/null || true
 }
 
 menu() {
   while :; do
     echo
-    echo "WordPress multi-site deployment"
-    echo "1) Guided deploy or update a site"
-    echo "2) Start shared proxy only"
-    echo "3) Check DNS for a site"
-    echo "4) Restart Let's Encrypt companion after DNS change"
-    echo "5) Show status"
+    echo "WordPress website deployment"
+    echo "1) Add a new website or update an existing website"
+    echo "2) Start the main public web entry only"
+    echo "3) Check if a website domain points to this server"
+    echo "4) Retry SSL certificate after fixing DNS"
+    echo "5) Show running status"
     echo "0) Exit"
     printf "Choose: "
     IFS= read -r choice

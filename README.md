@@ -5,18 +5,21 @@ changing the first site.
 
 This repo uses:
 
-- one shared proxy stack for public ports `80` and `443`
+- one main public web entry for ports `80` and `443`
 - one isolated WordPress stack per website
 - one MariaDB volume per website
-- automatic HTTPS through the shared proxy
+- automatic HTTPS certificates
 
 ## Folder Layout
 
 ```text
-proxy/                  shared nginx proxy + Let's Encrypt companion
+proxy/                  main public web entry + SSL certificate service
 sites/site-template/    template copied for each WordPress site
 deploy-site.sh          helper script to create and start site stacks
 ```
+
+The main public web entry is the only part exposed to the internet. It receives
+traffic for all domains and sends each request to the correct WordPress website.
 
 The old root `docker-compose.yml` is still kept for single-site testing, but for
 two or more websites use the `proxy/` and `sites/` layout.
@@ -50,7 +53,7 @@ sh deploy-site.sh
 Choose:
 
 ```text
-1) Guided deploy or update a site
+1) Add a new website or update an existing website
 ```
 
 The script asks for:
@@ -66,7 +69,7 @@ The script asks for:
 For the first site, answer yes when it asks:
 
 ```text
-Start or update shared proxy too? Use yes for the first site
+Set up the main public web entry too? Choose yes for the first website on this server
 ```
 
 You can also run the direct command:
@@ -133,6 +136,9 @@ www.example.com  -> server public IP
 Containers can start before DNS is correct, but HTTPS and public browser access
 will not work until DNS points to the server.
 
+When the script asks for the server public IP, press Enter to use the detected
+IP unless you know it is wrong. Do not enter the domain name in that prompt.
+
 Check containers:
 
 ```bash
@@ -160,7 +166,7 @@ sh deploy-site.sh
 Choose:
 
 ```text
-1) Guided deploy or update a site
+1) Add a new website or update an existing website
 ```
 
 Use a different site folder and Compose project name:
@@ -170,8 +176,8 @@ Site folder: site-two
 Compose project name: site_two
 ```
 
-Answer no when it asks to start the shared proxy, because the proxy is already
-running from the first site.
+Answer no when it asks to set up the main public web entry, because it is
+already running from the first site.
 
 You can also run the direct command:
 
@@ -211,14 +217,15 @@ sh deploy-site.sh site-two site_two
 ```
 
 This does not recreate or modify `site_one` containers, files, or database
-volumes. The shared proxy detects the new site container and updates routing.
+volumes. The main public web entry detects the new website container and updates
+routing.
 
 ## Important Rules
 
 - Use a unique folder per site: `site-one`, `site-two`, etc.
 - Use a unique Compose project per site: `site_one`, `site_two`, etc.
 - Do not publish ports `80` or `443` from individual site stacks.
-- Start the shared proxy once, then leave it running.
+- Start the main public web entry once, then leave it running.
 - Do not reuse the same database passwords between sites unless you intentionally want that.
 - Make sure `DOMAIN`, `WWW_DOMAIN`, and `WORDPRESS_URL` match the real domain.
 
@@ -253,7 +260,7 @@ Do not add `-v` unless you want to delete that site's database volume.
 
 ## Logs
 
-Shared proxy logs:
+Main public web entry logs:
 
 ```bash
 cd proxy
@@ -282,11 +289,11 @@ sh deploy-site.sh
 Menu options:
 
 ```text
-1) Guided deploy or update a site
-2) Start shared proxy only
-3) Check DNS for a site
-4) Restart Let's Encrypt companion after DNS change
-5) Show status
+1) Add a new website or update an existing website
+2) Start the main public web entry only
+3) Check if a website domain points to this server
+4) Retry SSL certificate after fixing DNS
+5) Show running status
 0) Exit
 ```
 

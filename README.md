@@ -44,10 +44,38 @@ www.second.com   -> server public IP
 From the repository root:
 
 ```bash
+sh deploy-site.sh
+```
+
+Choose:
+
+```text
+1) Guided deploy or update a site
+```
+
+The script asks for:
+
+- site folder, for example `site-one`
+- Compose project name, for example `site_one`
+- domain and `www` domain
+- primary domain
+- Let's Encrypt email
+- WordPress title and admin login
+- database passwords
+
+For the first site, answer yes when it asks:
+
+```text
+Start or update shared proxy too? Use yes for the first site
+```
+
+You can also run the direct command:
+
+```bash
 sh deploy-site.sh site-one site_one --start-proxy
 ```
 
-The first run creates:
+The script creates:
 
 ```text
 proxy/.env
@@ -55,13 +83,8 @@ sites/site-one/.env
 sites/site-one/
 ```
 
-Edit the proxy email:
-
-```bash
-nano proxy/.env
-```
-
-Edit the first site settings:
+If the site `.env` already exists with placeholder values, the script asks if it
+should replace it using guided questions. You can also edit it manually:
 
 ```bash
 nano sites/site-one/.env
@@ -99,6 +122,17 @@ Start the proxy and first site:
 sh deploy-site.sh site-one site_one --start-proxy
 ```
 
+During deployment the script checks DNS. If it says the domain does not resolve
+to the server IP yet, fix your DNS `A` records first:
+
+```text
+example.com      -> server public IP
+www.example.com  -> server public IP
+```
+
+Containers can start before DNS is correct, but HTTPS and public browser access
+will not work until DNS points to the server.
+
 Check containers:
 
 ```bash
@@ -120,10 +154,32 @@ https://www.example.com
 From the repository root:
 
 ```bash
+sh deploy-site.sh
+```
+
+Choose:
+
+```text
+1) Guided deploy or update a site
+```
+
+Use a different site folder and Compose project name:
+
+```text
+Site folder: site-two
+Compose project name: site_two
+```
+
+Answer no when it asks to start the shared proxy, because the proxy is already
+running from the first site.
+
+You can also run the direct command:
+
+```bash
 sh deploy-site.sh site-two site_two
 ```
 
-Edit the second site settings:
+Edit the second site settings manually if needed:
 
 ```bash
 nano sites/site-two/.env
@@ -214,6 +270,28 @@ docker compose -p site_one logs --tail=100 wordpress
 docker compose -p site_one logs --tail=100 mariadb
 docker compose -p site_one logs --tail=100 wpcli
 ```
+
+## Script Menu
+
+Run:
+
+```bash
+sh deploy-site.sh
+```
+
+Menu options:
+
+```text
+1) Guided deploy or update a site
+2) Start shared proxy only
+3) Check DNS for a site
+4) Restart Let's Encrypt companion after DNS change
+5) Show status
+0) Exit
+```
+
+Use option `3` after changing DNS records. Use option `4` after DNS is correct
+if HTTPS was previously failing.
 
 ## Troubleshooting
 

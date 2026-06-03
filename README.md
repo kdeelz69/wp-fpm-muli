@@ -1,274 +1,272 @@
-# Docker WordPress Starter
+# WordPress Multi-Site Docker Deployment
 
-<p align="center">
-  <a href="https://github.com/kdeelz69/wp-fpm-docker">
-    <img alt="Repo views" src="https://komarev.com/ghpvc/?username=kdeelz69-wp-fpm-docker&label=repo%20views&color=0e75b6&style=for-the-badge">
-  </a>
-  <a href="https://github.com/kdeelz69/wp-fpm-docker/stargazers">
-    <img alt="GitHub stars" src="https://img.shields.io/github/stars/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=github&label=stars">
-  </a>
-  <a href="https://github.com/kdeelz69/wp-fpm-docker/forks">
-    <img alt="GitHub forks" src="https://img.shields.io/github/forks/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=github&label=forks">
-  </a>
-  <a href="https://github.com/kdeelz69/wp-fpm-docker/watchers">
-    <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=github&label=watchers">
-  </a>
-  <a href="https://github.com/kdeelz69/wp-fpm-docker/commits/main">
-    <img alt="Last commit" src="https://img.shields.io/github/last-commit/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=git&label=last%20commit">
-  </a>
-  <a href="https://github.com/kdeelz69/wp-fpm-docker/archive/refs/heads/main.zip">
-    <img alt="Git clone" src="https://img.shields.io/badge/git%20clone-ready-2ea44f?style=for-the-badge&logo=git">
-  </a>
-  <img alt="Repo size" src="https://img.shields.io/github/repo-size/kdeelz69/wp-fpm-docker?style=for-the-badge&label=repo%20size">
-  <img alt="License" src="https://img.shields.io/github/license/kdeelz69/wp-fpm-docker?style=for-the-badge&label=license">
-</p>
+Deploy multiple WordPress FPM sites on one server without the second deployment
+changing the first site.
 
-A reusable Docker Compose starter for WordPress with nginx and Let's Encrypt.
+This repo uses:
 
-This repository contains a minimal public-ready stack for running WordPress in Docker:
+- one shared proxy stack for public ports `80` and `443`
+- one isolated WordPress stack per website
+- one MariaDB volume per website
+- automatic HTTPS through the shared proxy
 
-- `mariadb` for the database
-- `wordpress` PHP-FPM application container
-- `nginx` web server with HTTPS support
-- `certbot` for obtaining and renewing Let's Encrypt certificates
+## Folder Layout
 
-> The project is intentionally configured as a reusable starter. It does not ship WordPress core content in `html/` and it uses placeholder domain names that must be updated before deployment.
-
----
-
-## Repository structure
-
-- `docker-compose.yml` - Docker Compose stack definition
-- `nginx.conf.template` - nginx template rendered from env variables
-- `certbot/run-certbot.sh` - certificate issuance script
-- `.env.example` - required environment variables
-- `certbot/conf/` - certificate storage directory (runtime data)
-- `html/` - WordPress site volume mount point
-- `php/uploads.ini` - custom PHP upload settings
-- `.gitignore` - runtime artifacts excluded from Git
-
----
-
-## Prerequisites
-
-- Docker Engine
-- Docker Compose v2 (`docker compose`)
-- DNS records for your domain pointing to the host
-- Ports `80` and `443` open on the host
-
----
-
-## Before you start
-
-Create your env file and update values:
-
-```bash
-cp .env.example .env
+```text
+proxy/                  shared nginx proxy + Let's Encrypt companion
+sites/site-template/    template copied for each WordPress site
+deploy-site.sh          helper script to create and start site stacks
 ```
 
-Set at least:
+The old root `docker-compose.yml` is still kept for single-site testing, but for
+two or more websites use the `proxy/` and `sites/` layout.
 
-- `DOMAIN` (example: `example.com`)
-- `WWW_DOMAIN` (example: `www.example.com`)
-- `LETSENCRYPT_EMAIL`
-- `WORDPRESS_VERSION` (example: `6.9.4`)
-- `PHP_VERSION` (example: `8.3`)
-- database and WordPress DB credentials
-- WordPress install credentials:
-  - `WORDPRESS_URL`
-  - `WORDPRESS_SITE_TITLE`
-  - `WORDPRESS_ADMIN_USER`
-  - `WORDPRESS_ADMIN_PASSWORD`
-  - `WORDPRESS_ADMIN_EMAIL`
+## Requirements
 
----
+On the server:
 
-## WordPress and PHP version selection
+- Docker Engine
+- Docker Compose v2
+- DNS records pointing to the server IP
+- inbound ports `80` and `443` open
 
-This project now builds the WordPress image tag from:
+Example DNS:
 
-- `WORDPRESS_VERSION`
-- `PHP_VERSION`
+```text
+example.com      -> server public IP
+www.example.com  -> server public IP
+second.com       -> server public IP
+www.second.com   -> server public IP
+```
 
-Compose pattern used:
+## Deploy First Site
+
+From the repository root:
+
+```bash
+sh deploy-site.sh site-one site_one --start-proxy
+```
+
+The first run creates:
+
+```text
+proxy/.env
+sites/site-one/.env
+sites/site-one/
+```
+
+Edit the proxy email:
+
+```bash
+nano proxy/.env
+```
+
+Edit the first site settings:
+
+```bash
+nano sites/site-one/.env
+```
+
+Set real values:
+
+```env
+DOMAIN=example.com
+WWW_DOMAIN=www.example.com
+PRIMARY_DOMAIN=www.example.com
+LETSENCRYPT_EMAIL=you@example.com
+
+WORDPRESS_VERSION=6.9.4
+PHP_VERSION=8.3
+WORDPRESS_URL=https://www.example.com
+WORDPRESS_SITE_TITLE="Example Site"
+WORDPRESS_ADMIN_USER=admin
+WORDPRESS_ADMIN_PASSWORD=change_this_password
+WORDPRESS_ADMIN_EMAIL=you@example.com
+
+MYSQL_ROOT_PASSWORD=change_this_root_password
+MYSQL_DATABASE=wordpress
+MYSQL_USER=wordpress
+MYSQL_PASSWORD=change_this_db_password
+
+WORDPRESS_DB_NAME=wordpress
+WORDPRESS_DB_USER=wordpress
+WORDPRESS_DB_PASSWORD=change_this_db_password
+```
+
+Start the proxy and first site:
+
+```bash
+sh deploy-site.sh site-one site_one --start-proxy
+```
+
+Check containers:
+
+```bash
+cd proxy
+docker compose ps
+
+cd ../sites/site-one
+docker compose -p site_one ps
+```
+
+Visit:
+
+```text
+https://www.example.com
+```
+
+## Deploy Second Site Later
+
+From the repository root:
+
+```bash
+sh deploy-site.sh site-two site_two
+```
+
+Edit the second site settings:
+
+```bash
+nano sites/site-two/.env
+```
+
+Example:
+
+```env
+DOMAIN=second.com
+WWW_DOMAIN=www.second.com
+PRIMARY_DOMAIN=www.second.com
+LETSENCRYPT_EMAIL=you@example.com
+
+WORDPRESS_URL=https://www.second.com
+WORDPRESS_SITE_TITLE="Second Site"
+WORDPRESS_ADMIN_USER=admin
+WORDPRESS_ADMIN_PASSWORD=change_this_password
+WORDPRESS_ADMIN_EMAIL=you@example.com
+
+MYSQL_ROOT_PASSWORD=change_this_root_password
+MYSQL_PASSWORD=change_this_db_password
+WORDPRESS_DB_PASSWORD=change_this_db_password
+```
+
+Start only the second site:
+
+```bash
+sh deploy-site.sh site-two site_two
+```
+
+This does not recreate or modify `site_one` containers, files, or database
+volumes. The shared proxy detects the new site container and updates routing.
+
+## Important Rules
+
+- Use a unique folder per site: `site-one`, `site-two`, etc.
+- Use a unique Compose project per site: `site_one`, `site_two`, etc.
+- Do not publish ports `80` or `443` from individual site stacks.
+- Start the shared proxy once, then leave it running.
+- Do not reuse the same database passwords between sites unless you intentionally want that.
+- Make sure `DOMAIN`, `WWW_DOMAIN`, and `WORDPRESS_URL` match the real domain.
+
+## Update One Site
+
+Update only site one:
+
+```bash
+cd sites/site-one
+docker compose -p site_one pull
+docker compose -p site_one up -d
+```
+
+Update only site two:
+
+```bash
+cd sites/site-two
+docker compose -p site_two pull
+docker compose -p site_two up -d
+```
+
+## Stop One Site
+
+Stop site two without touching site one:
+
+```bash
+cd sites/site-two
+docker compose -p site_two down
+```
+
+Do not add `-v` unless you want to delete that site's database volume.
+
+## Logs
+
+Shared proxy logs:
+
+```bash
+cd proxy
+docker compose logs --tail=100 nginx-proxy
+docker compose logs --tail=100 acme-companion
+```
+
+Site logs:
+
+```bash
+cd sites/site-one
+docker compose -p site_one logs --tail=100 nginx
+docker compose -p site_one logs --tail=100 wordpress
+docker compose -p site_one logs --tail=100 mariadb
+docker compose -p site_one logs --tail=100 wpcli
+```
+
+## Troubleshooting
+
+If HTTPS is not issued:
+
+```bash
+cd proxy
+docker compose logs --tail=200 acme-companion
+```
+
+Check:
+
+- DNS points to this server
+- ports `80` and `443` are open
+- `DOMAIN` and `WWW_DOMAIN` are hostnames only, not URLs
+- the site nginx container is running
+
+If WordPress does not install:
+
+```bash
+cd sites/site-one
+docker compose -p site_one logs --tail=200 wpcli
+docker compose -p site_one logs --tail=200 mariadb
+```
+
+If image pull fails, check that this Docker tag exists:
 
 ```text
 wordpress:${WORDPRESS_VERSION}-php${PHP_VERSION}-fpm
 ```
 
-Recommended defaults:
-
-- `WORDPRESS_VERSION=6.9.4`
-- `PHP_VERSION=8.3`
-
-Practical compatibility guide (for `PHP 7.4` to `8.3`):
-
-| PHP version | Use with WordPress | Recommendation |
-|---|---|---|
-| 8.3 | 6.8+ (fully compatible in current handbook) | Best choice |
-| 8.2 | 6.5+ | Safe choice |
-| 8.1 | 6.4+ | Safe choice |
-| 8.0 | 6.4+ | Acceptable, but older |
-| 7.4 | 6.4+ still supports it | Legacy only, upgrade planned |
-
-Important notes:
-
-- WordPress core support and plugin/theme support are different; newer PHP can still break old plugins.
-- `php7.4` Docker tags are old/unmaintained compared with `8.x`; use only for legacy migrations.
-- If a specific tag combination does not exist on Docker Hub, `docker compose up` will fail to pull.
-
-References:
-
-- WordPress PHP compatibility matrix: https://make.wordpress.org/core/handbook/references/php-compatibility-and-wordpress-versions/
-- WordPress Docker tags: https://hub.docker.com/_/wordpress/tags
-
----
-
-## Quick start
-
-From the project root:
-
-```bash
-docker compose up -d
-```
-
-On first startup, the `wpcli` service automatically installs WordPress using
-the admin details from `.env`. If WordPress is already installed, it exits
-without changing the site.
-
-One-command HTTPS bootstrap:
-
-```bash
-sh bootstrap-https.sh
-```
-
-Issue or renew TLS certificates:
-
-```bash
-sh certbot/run-certbot.sh
-```
-
-You can override email at runtime:
-
-```bash
-sh certbot/run-certbot.sh you@example.com
-```
-
-Restart nginx after certificates are created or renewed:
-
-```bash
-docker compose restart nginx
-```
-
-Visit `https://your-domain` after setting env values.
-
----
-
-## Multiple sites on one server
-
-For two or more WordPress sites on the same server, use the incremental
-deployment layout in [`sites/README.md`](sites/README.md).
-
-The recommended pattern is:
-
-- one shared proxy stack in `proxy/` that owns public ports `80` and `443`
-- one isolated WordPress stack per website, copied from `sites/site-template/`
-- unique Compose project names for each site, for example `site_one` and `site_two`
-- optional helper script: `sh deploy-site.sh site-one site_one --start-proxy`
-
-This lets you deploy one site today and add another later without recreating or
-modifying the first site's WordPress, MariaDB, files, or volumes.
-
-Do not run two copies of the root `docker-compose.yml` unchanged on the same
-server, because both copies would try to bind host ports `80` and `443`.
-
----
-
-## From-scratch server setup process
-
-1. Install Docker + Compose on server.
-2. Clone repo into server directory (example: `/home/wp-fpm`).
-3. Copy env template: `cp .env.example .env`.
-4. Edit `.env` with real values:
-   - `DOMAIN=yourdomain.com`
-   - `WWW_DOMAIN=www.yourdomain.com`
-   - `LETSENCRYPT_EMAIL=you@domain.com`
-   - `WORDPRESS_VERSION=6.9.4`
-   - `PHP_VERSION=8.3`
-   - `WORDPRESS_URL=https://yourdomain.com`
-   - `WORDPRESS_SITE_TITLE="Your Site Name"`
-   - `WORDPRESS_ADMIN_USER=your_admin_user`
-   - `WORDPRESS_ADMIN_PASSWORD=your_strong_admin_password`
-   - `WORDPRESS_ADMIN_EMAIL=you@domain.com`
-   - DB passwords/users
-5. Point DNS `A` records (`@` and `www`) to server public IP.
-6. Open inbound ports `80` and `443` in cloud firewall/security group.
-7. Start stack: `docker compose up -d`.
-8. Bootstrap HTTPS: `sh bootstrap-https.sh`.
-9. Verify:
-   - `docker compose ps` (all Up)
-   - `docker compose logs --tail=100 nginx`
-   - visit `https://yourdomain.com`
-10. For renewals later:
-    - `sh certbot/run-certbot.sh`
-    - `docker compose restart nginx`
-
----
-
-## How it works
-
-- `html/` is mounted into both the `wordpress` and `nginx` containers.
-- The official WordPress image initializes site files into `html/` when the volume is empty.
-- The `wpcli` service waits for WordPress files and MariaDB, then runs a one-time
-  `wp core install` if the site has not already been installed.
-- nginx uses `nginx.conf.template` and Docker's env substitution at container startup.
-- `certbot/run-certbot.sh` reads `.env` and requests certs for both `DOMAIN` and `WWW_DOMAIN`.
-
----
-
-## Database restore with HeidiSQL
-
-MariaDB is exposed on the host loopback address by default:
-
-```env
-MYSQL_BIND_ADDRESS=127.0.0.1
-MYSQL_PORT=3306
-```
-
-Use HeidiSQL with an SSH tunnel to the server, then connect to:
+Example:
 
 ```text
-Host: 127.0.0.1
-Port: 3306
-User: value of MYSQL_USER
-Password: value of MYSQL_PASSWORD
-Database: value of MYSQL_DATABASE
+wordpress:6.9.4-php8.3-fpm
 ```
 
-Avoid setting `MYSQL_BIND_ADDRESS=0.0.0.0` on a public server unless the port is
-strictly firewalled to your IP.
+## Manual Commands
 
----
+The helper script replaces this manual flow:
 
-## Persistence
+```bash
+mkdir -p sites/site-one
+cp -a sites/site-template/. sites/site-one/
+cd sites/site-one
+cp .env.example .env
+nano .env
+docker compose -p site_one up -d
+```
 
-- MariaDB data is stored in the named volume `db_data`
-- Certificates are stored in `certbot/conf/`
-- WordPress files are created inside `html/`
+Use the script instead:
 
----
-
-## Troubleshooting
-
-- `docker compose ps`
-- `docker compose logs nginx`
-- `docker compose logs certbot`
-- verify DNS and port access
-- `docker compose exec nginx nginx -t` to validate generated config
-- if Certbot reports `Connection refused`, confirm nginx is `Up` and host/security-group allows inbound `80/tcp`
-
----
-
-## License
-
-This repository is intentionally generic and ready to adapt to your own project. Choose a license before publishing.
+```bash
+sh deploy-site.sh site-one site_one --start-proxy
+sh deploy-site.sh site-two site_two
+```

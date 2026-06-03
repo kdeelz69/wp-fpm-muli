@@ -331,7 +331,24 @@ deploy_site() {
   fi
 
   echo "Starting site stack: $project_name"
-  (cd "$ROOT_DIR/sites/$site_folder" && docker compose -p "$project_name" up -d)
+  if ! (cd "$ROOT_DIR/sites/$site_folder" && docker compose -p "$project_name" up -d); then
+    echo
+    echo "Website stack did not finish starting."
+    echo
+    echo "Most common cause during a fresh deployment:"
+    echo "  The database volume already exists with an old password, but .env now has a new password."
+    echo
+    echo "Check the installer logs:"
+    echo "  cd sites/$site_folder && docker compose -p $project_name logs --tail=200 wpcli"
+    echo
+    echo "If the logs say 'Access denied for user', and this is a fresh failed deployment with no real site data yet, reset only this website:"
+    echo "  cd sites/$site_folder"
+    echo "  docker compose -p $project_name down -v"
+    echo "  docker compose -p $project_name up -d"
+    echo
+    echo "Do not use down -v on a live website unless you intend to delete that website's database."
+    exit 1
+  fi
 
   echo
   echo "Done."

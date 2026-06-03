@@ -335,6 +335,26 @@ docker compose -p site_one logs --tail=200 wpcli
 docker compose -p site_one logs --tail=200 mariadb
 ```
 
+If `wpcli` shows `Access denied for user 'wordpress'`, the database volume was
+probably created with an old password. For a fresh failed deployment with no real
+site data yet, reset only that website:
+
+```bash
+cd sites/site-one
+docker compose -p site_one down -v
+docker compose -p site_one up -d
+```
+
+Before restarting, make sure these values in that site's `.env` match:
+
+```env
+MYSQL_PASSWORD=your_db_password
+WORDPRESS_DB_PASSWORD=your_db_password
+```
+
+Do not run `down -v` on a live website unless you intend to delete that
+website's database.
+
 If image pull fails, check that this Docker tag exists:
 
 ```text

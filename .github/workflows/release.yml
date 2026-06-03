@@ -1,0 +1,40 @@
+name: Create Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (for example v1.0.0)'
+        required: true
+      release_name:
+        description: 'Release title'
+        required: false
+      release_body:
+        description: 'Release notes/body'
+        required: false
+      draft:
+        description: 'Create a draft release?'
+        required: false
+        default: 'false'
+      prerelease:
+        description: 'Create a prerelease?'
+        required: false
+        default: 'false'
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          release_name: ${{ github.event.inputs.release_name || github.event.inputs.tag }}
+          body: ${{ github.event.inputs.release_body }}
+          draft: ${{ github.event.inputs.draft }}
+          prerelease: ${{ github.event.inputs.prerelease }}

@@ -1,5 +1,28 @@
 # Docker WordPress Starter
 
+<p align="center">
+  <a href="https://github.com/kdeelz69/wp-fpm-docker">
+    <img alt="Repo views" src="https://komarev.com/ghpvc/?username=kdeelz69-wp-fpm-docker&label=repo%20views&color=0e75b6&style=for-the-badge">
+  </a>
+  <a href="https://github.com/kdeelz69/wp-fpm-docker/stargazers">
+    <img alt="GitHub stars" src="https://img.shields.io/github/stars/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=github&label=stars">
+  </a>
+  <a href="https://github.com/kdeelz69/wp-fpm-docker/forks">
+    <img alt="GitHub forks" src="https://img.shields.io/github/forks/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=github&label=forks">
+  </a>
+  <a href="https://github.com/kdeelz69/wp-fpm-docker/watchers">
+    <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=github&label=watchers">
+  </a>
+  <a href="https://github.com/kdeelz69/wp-fpm-docker/commits/main">
+    <img alt="Last commit" src="https://img.shields.io/github/last-commit/kdeelz69/wp-fpm-docker?style=for-the-badge&logo=git&label=last%20commit">
+  </a>
+  <a href="https://github.com/kdeelz69/wp-fpm-docker/archive/refs/heads/main.zip">
+    <img alt="Git clone" src="https://img.shields.io/badge/git%20clone-ready-2ea44f?style=for-the-badge&logo=git">
+  </a>
+  <img alt="Repo size" src="https://img.shields.io/github/repo-size/kdeelz69/wp-fpm-docker?style=for-the-badge&label=repo%20size">
+  <img alt="License" src="https://img.shields.io/github/license/kdeelz69/wp-fpm-docker?style=for-the-badge&label=license">
+</p>
+
 A reusable Docker Compose starter for WordPress with nginx and Let's Encrypt.
 
 This repository contains a minimal public-ready stack for running WordPress in Docker:
@@ -9,8 +32,6 @@ This repository contains a minimal public-ready stack for running WordPress in D
 - `nginx` web server with HTTPS support
 - `certbot` for obtaining and renewing Let's Encrypt certificates
 
-It supports the standard single-site stack and an optional incremental second-site stack.
-
 > The project is intentionally configured as a reusable starter. It does not ship WordPress core content in `html/` and it uses placeholder domain names that must be updated before deployment.
 
 ---
@@ -18,10 +39,8 @@ It supports the standard single-site stack and an optional incremental second-si
 ## Repository structure
 
 - `docker-compose.yml` - Docker Compose stack definition
-- `docker-compose.site2.yml` - incremental second-site stack (no public ports)
 - `nginx.conf.template` - nginx template rendered from env variables
-- `certbot/run-certbot.sh` - certificate issuance script for primary site
-- `certbot/run-certbot-site2.sh` - certificate issuance script for incremental site2
+- `certbot/run-certbot.sh` - certificate issuance script
 - `.env.example` - required environment variables
 - `certbot/conf/` - certificate storage directory (runtime data)
 - `html/` - WordPress site volume mount point
@@ -55,6 +74,12 @@ Set at least:
 - `WORDPRESS_VERSION` (example: `6.9.4`)
 - `PHP_VERSION` (example: `8.3`)
 - database and WordPress DB credentials
+- WordPress install credentials:
+  - `WORDPRESS_URL`
+  - `WORDPRESS_SITE_TITLE`
+  - `WORDPRESS_ADMIN_USER`
+  - `WORDPRESS_ADMIN_PASSWORD`
+  - `WORDPRESS_ADMIN_EMAIL`
 
 ---
 
@@ -107,6 +132,10 @@ From the project root:
 docker compose up -d
 ```
 
+On first startup, the `wpcli` service automatically installs WordPress using
+the admin details from `.env`. If WordPress is already installed, it exits
+without changing the site.
+
 One-command HTTPS bootstrap:
 
 ```bash
@@ -135,52 +164,6 @@ Visit `https://your-domain` after setting env values.
 
 ---
 
-## Deployment modes
-
-### Mode A: Single website (existing behavior)
-
-Use the existing workflow:
-
-```bash
-docker compose up -d
-sh bootstrap-https.sh
-```
-
-This uses:
-
-- `docker-compose.yml`
-- `DOMAIN` and `WWW_DOMAIN`
-
-### Mode B: Incremental second website (keep site1 unchanged)
-
-Use the additional stack for only site2:
-
-```bash
-docker compose -f docker-compose.site2.yml up -d
-```
-
-This mode runs:
-
-- `wordpress_site2` + `mariadb_site2` with content in `html/site2`
-- no new public ports (existing nginx continues serving traffic)
-
-Required env variables:
-
-- `SITE2_DOMAIN`, `SITE2_WWW_DOMAIN`
-- `SITE2_WORDPRESS_VERSION`, `SITE2_PHP_VERSION`
-- `SITE2_SHARED_NETWORK`
-- `SITE2_*` DB credentials
-
-Important:
-
-- Existing nginx/site1 stack remains the public entrypoint on ports `80/443`.
-- Site2 HTTP/HTTPS routing is appended automatically by `docker-compose.yml` when `SITE2_DOMAIN` and `SITE2_WWW_DOMAIN` are set.
-- For HTTPS on site2, run:
-  - `sh certbot/run-certbot-site2.sh`
-  - `docker compose restart nginx`
-
----
-
 ## From-scratch server setup process
 
 1. Install Docker + Compose on server.
@@ -192,6 +175,11 @@ Important:
    - `LETSENCRYPT_EMAIL=you@domain.com`
    - `WORDPRESS_VERSION=6.9.4`
    - `PHP_VERSION=8.3`
+   - `WORDPRESS_URL=https://yourdomain.com`
+   - `WORDPRESS_SITE_TITLE="Your Site Name"`
+   - `WORDPRESS_ADMIN_USER=your_admin_user`
+   - `WORDPRESS_ADMIN_PASSWORD=your_strong_admin_password`
+   - `WORDPRESS_ADMIN_EMAIL=you@domain.com`
    - DB passwords/users
 5. Point DNS `A` records (`@` and `www`) to server public IP.
 6. Open inbound ports `80` and `443` in cloud firewall/security group.
@@ -211,8 +199,34 @@ Important:
 
 - `html/` is mounted into both the `wordpress` and `nginx` containers.
 - The official WordPress image initializes site files into `html/` when the volume is empty.
+- The `wpcli` service waits for WordPress files and MariaDB, then runs a one-time
+  `wp core install` if the site has not already been installed.
 - nginx uses `nginx.conf.template` and Docker's env substitution at container startup.
 - `certbot/run-certbot.sh` reads `.env` and requests certs for both `DOMAIN` and `WWW_DOMAIN`.
+
+---
+
+## Database restore with HeidiSQL
+
+MariaDB is exposed on the host loopback address by default:
+
+```env
+MYSQL_BIND_ADDRESS=127.0.0.1
+MYSQL_PORT=3306
+```
+
+Use HeidiSQL with an SSH tunnel to the server, then connect to:
+
+```text
+Host: 127.0.0.1
+Port: 3306
+User: value of MYSQL_USER
+Password: value of MYSQL_PASSWORD
+Database: value of MYSQL_DATABASE
+```
+
+Avoid setting `MYSQL_BIND_ADDRESS=0.0.0.0` on a public server unless the port is
+strictly firewalled to your IP.
 
 ---
 

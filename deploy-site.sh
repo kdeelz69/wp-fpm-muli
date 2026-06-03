@@ -155,7 +155,7 @@ load_env_value() {
 
 ensure_proxy_env() {
   if [ ! -f "$PROXY_DIR/.env" ]; then
-    email="$(prompt_required "Default Let's Encrypt email")"
+    email="$(prompt_required "Default SSL certificate email")"
     printf "DEFAULT_EMAIL=%s\n" "$email" > "$PROXY_DIR/.env"
     echo "Created proxy/.env."
   fi
@@ -187,7 +187,7 @@ write_site_env_interactive() {
   domain="$(prompt_required "Apex domain, for example example.com")"
   www_domain="$(prompt_default "WWW domain" "www.$domain")"
   primary_domain="$(prompt_default "Primary domain" "$www_domain")"
-  email="$(prompt_required "Let's Encrypt email")"
+  email="$(prompt_required "SSL certificate email")"
   site_title="$(prompt_required "WordPress site title")"
   admin_user="$(prompt_default "WordPress admin username" "admin")"
   admin_password="$(prompt_required "WordPress admin password")"

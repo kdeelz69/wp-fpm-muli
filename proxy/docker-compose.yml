@@ -15,7 +15,7 @@ services:
       - webproxy
 
   acme-companion:
-    image: nginxproxy/acme-companion
+    image: nginxproxy/acme-companion:2.5.2
     container_name: shared_acme_companion
     restart: always
     depends_on:
@@ -23,6 +23,7 @@ services:
     environment:
       DEFAULT_EMAIL: ${DEFAULT_EMAIL}
       NGINX_PROXY_CONTAINER: shared_nginx_proxy
+      ACME_CA_URI: https://acme.zerossl.com/v2/DV90
     volumes:
       - certs:/etc/nginx/certs:rw
       - vhost:/etc/nginx/vhost.d

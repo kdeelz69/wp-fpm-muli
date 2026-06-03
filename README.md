@@ -8,12 +8,12 @@ This repo uses:
 - one main public web entry for ports `80` and `443`
 - one isolated WordPress stack per website
 - one MariaDB volume per website
-- automatic HTTPS certificates
+- automatic HTTPS certificates through ZeroSSL
 
 ## Folder Layout
 
 ```text
-proxy/                  main public web entry + SSL certificate service
+proxy/                  main public web entry + ZeroSSL certificate service
 sites/site-template/    template copied for each WordPress site
 deploy-site.sh          helper script to create and start site stacks
 ```
@@ -62,7 +62,7 @@ The script asks for:
 - Compose project name, for example `site_one`
 - domain and `www` domain
 - primary domain
-- Let's Encrypt email
+- SSL certificate email
 - WordPress title and admin login
 - database passwords
 
@@ -157,6 +157,10 @@ https://www.example.com
 
 ## Deploy Second Site Later
 
+Do not create another main public web entry for the second website. The first
+website already started it, and the same entry is reused for every website on
+the server.
+
 From the repository root:
 
 ```bash
@@ -178,6 +182,12 @@ Compose project name: site_two
 
 Answer no when it asks to set up the main public web entry, because it is
 already running from the first site.
+
+Expected answer for the second website:
+
+```text
+Set up the main public web entry too? Choose yes for the first website on this server [y/N]: N
+```
 
 You can also run the direct command:
 
@@ -225,7 +235,8 @@ routing.
 - Use a unique folder per site: `site-one`, `site-two`, etc.
 - Use a unique Compose project per site: `site_one`, `site_two`, etc.
 - Do not publish ports `80` or `443` from individual site stacks.
-- Start the main public web entry once, then leave it running.
+- Start the main public web entry once for the first website, then leave it running.
+- Do not create a second main public web entry for the second website.
 - Do not reuse the same database passwords between sites unless you intentionally want that.
 - Make sure `DOMAIN`, `WWW_DOMAIN`, and `WORDPRESS_URL` match the real domain.
 

@@ -164,6 +164,26 @@ Visit `https://your-domain` after setting env values.
 
 ---
 
+## Multiple sites on one server
+
+For two or more WordPress sites on the same server, use the incremental
+deployment layout in [`sites/README.md`](sites/README.md).
+
+The recommended pattern is:
+
+- one shared proxy stack in `proxy/` that owns public ports `80` and `443`
+- one isolated WordPress stack per website, copied from `sites/site-template/`
+- unique Compose project names for each site, for example `site_one` and `site_two`
+- optional helper script: `sh deploy-site.sh site-one site_one --start-proxy`
+
+This lets you deploy one site today and add another later without recreating or
+modifying the first site's WordPress, MariaDB, files, or volumes.
+
+Do not run two copies of the root `docker-compose.yml` unchanged on the same
+server, because both copies would try to bind host ports `80` and `443`.
+
+---
+
 ## From-scratch server setup process
 
 1. Install Docker + Compose on server.

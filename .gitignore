@@ -20,3 +20,13 @@ Thumbs.db
 
 # Local environment
 .env
+
+# Multi-site runtime data copied from sites/site-template/
+sites/*/.env
+sites/*/html/*
+!sites/*/html/.gitkeep
+sites/*/certbot/
+!sites/site-template/.env.example
+!sites/site-template/html/
+!sites/site-template/php/
+!sites/site-template/nginx.conf.template

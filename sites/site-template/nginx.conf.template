@@ -1,0 +1,51 @@
+server {
+    listen 80;
+    server_name ${DOMAIN} ${WWW_DOMAIN};
+
+    if ($host != ${PRIMARY_DOMAIN}) {
+        return 301 https://${PRIMARY_DOMAIN}$request_uri;
+    }
+
+    root /var/www/html;
+    index index.php index.html;
+
+    client_max_body_size 64M;
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass wordpress:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/html$fastcgi_script_name;
+        fastcgi_param QUERY_STRING    $query_string;
+        fastcgi_param REQUEST_METHOD  $request_method;
+        fastcgi_param CONTENT_TYPE    $content_type;
+        fastcgi_param CONTENT_LENGTH  $content_length;
+        fastcgi_param SCRIPT_NAME     $fastcgi_script_name;
+        fastcgi_param REQUEST_URI     $request_uri;
+        fastcgi_param DOCUMENT_URI    $document_uri;
+        fastcgi_param DOCUMENT_ROOT   /var/www/html;
+        fastcgi_param SERVER_PROTOCOL $server_protocol;
+        fastcgi_param GATEWAY_INTERFACE CGI/1.1;
+        fastcgi_param SERVER_SOFTWARE nginx/$nginx_version;
+        fastcgi_param REMOTE_ADDR     $remote_addr;
+        fastcgi_param REMOTE_PORT     $remote_port;
+        fastcgi_param SERVER_ADDR     $server_addr;
+        fastcgi_param SERVER_PORT     443;
+        fastcgi_param SERVER_NAME     $server_name;
+        fastcgi_param HTTPS           on;
+        fastcgi_param HTTP_X_FORWARDED_PROTO https;
+        fastcgi_read_timeout 300;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires max;
+        log_not_found off;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+}

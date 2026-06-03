@@ -431,13 +431,12 @@ fi
 find /var/www/html/wp-content/uploads /var/www/html/wp-content/upgrade /var/www/html/wp-content/ai1wm-backups -type d -exec chmod 775 {} \;
 find /var/www/html/wp-content/uploads /var/www/html/wp-content/upgrade /var/www/html/wp-content/ai1wm-backups -type f -exec chmod 664 {} \;
 if [ -d /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage ]; then
-  find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -mindepth 1 -maxdepth 1 -type d -exec sh -c '"'"'
-    for dir do
-      if [ ! -f "$dir/retention.json" ]; then
-        printf "{}" > "$dir/retention.json"
-      fi
-    done
-  '"'"' sh {} +
+  for dir in /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage/*; do
+    [ -d "$dir" ] || continue
+    if [ ! -f "$dir/retention.json" ]; then
+      printf "%s" "{}" > "$dir/retention.json"
+    fi
+  done
   chown -R www-data:www-data /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage
   find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type d -exec chmod 775 {} \;
   find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type f -exec chmod 664 {} \;

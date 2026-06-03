@@ -302,6 +302,20 @@ sh deploy-site.sh site-one site_one
 Do not run `docker compose down -v` in the `proxy/` folder on a live server
 unless you intend to delete the shared MariaDB data for all websites.
 
+If the deploy script says `Access denied for user 'root'@'localhost'` while
+creating the database, the shared MariaDB root login is not ready yet or the
+`proxy_db_data` volume was already initialized with a different root password.
+For a fresh server with no real website data, reset the shared stack:
+
+```bash
+cd proxy
+docker compose down -v
+docker compose up -d
+```
+
+For a live server, do not reset the volume. Use the original
+`SHARED_MYSQL_ROOT_PASSWORD` from `proxy/.env`.
+
 If image pull fails, check that this Docker tag exists:
 
 ```text

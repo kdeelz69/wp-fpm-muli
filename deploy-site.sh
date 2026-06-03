@@ -357,15 +357,17 @@ create_site_database() {
   fi
 
   attempts=0
-  until (cd "$PROXY_DIR" && docker compose exec -T mariadb mariadb-admin ping -uroot -p"$root_password" --silent) >/dev/null 2>&1; do
+  until (cd "$PROXY_DIR" && docker compose exec -T mariadb mariadb -uroot --password="$root_password" -e "SELECT 1" >/dev/null 2>&1); do
     attempts=$((attempts + 1))
-    if [ "$attempts" -ge 30 ]; then
-      echo "Error: shared MariaDB is not ready."
+    if [ "$attempts" -ge 40 ]; then
+      echo "Error: shared MariaDB is not ready for root login."
       echo "Check logs:"
       echo "  cd proxy && docker compose logs --tail=100 mariadb"
+      echo
+      echo "If proxy_db_data already existed, the shared MariaDB root password may be the old password from the first initialization."
       exit 1
     fi
-    echo "Waiting for shared MariaDB..."
+    echo "Waiting for shared MariaDB root login..."
     sleep 3
   done
 
@@ -381,7 +383,7 @@ GRANT ALL PRIVILEGES ON \`$db_name\`.* TO '$escaped_user'@'%';
 FLUSH PRIVILEGES;
 "
 
-  if ! printf "%s" "$sql" | (cd "$PROXY_DIR" && docker compose exec -T mariadb mariadb -uroot -p"$root_password"); then
+  if ! printf "%s" "$sql" | (cd "$PROXY_DIR" && docker compose exec -T mariadb mariadb -uroot --password="$root_password"); then
     echo "Error: could not create database/user in shared MariaDB."
     echo "Check the shared database status:"
     echo "  cd proxy && docker compose ps mariadb"

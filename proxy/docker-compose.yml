@@ -39,6 +39,8 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: ${SHARED_MYSQL_ROOT_PASSWORD}
+    ports:
+      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_PORT:-3306}:3306"
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:

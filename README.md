@@ -1,50 +1,96 @@
 # WordPress Multi-Site Docker Deployment
 
-Deploy multiple WordPress FPM sites on one small server without the second
-deployment changing the first site.
+Run multiple WordPress sites on one small VPS (about 2 GB RAM / 2 CPU) without
+later deployments breaking earlier sites.
 
-This layout is tuned for a 2 GB RAM / 2 CPU server:
+One shared reverse proxy and database serve every site. Each website still gets
+its own folder, containers, database, and database user.
 
-- one main public web entry for ports `80` and `443`
-- one SSL certificate service using ZeroSSL
-- one shared MariaDB container
-- one separate database and database user per website
-- one WordPress container per website
-- one internal nginx container per website
-
-## Folder Layout
+## How it works
 
 ```text
-proxy/                  main public web entry, SSL service, shared MariaDB
-sites/site-template/    template copied for each WordPress site
-deploy-site.sh          guided deployment script
+Internet :80 / :443
+        |
+        v
+  proxy/  (nginx-proxy + SSL + shared MariaDB)
+        |
+        +--> sites/site-one/  (WordPress + internal nginx)
+        |
+        +--> sites/site-two/  (WordPress + internal nginx)
 ```
 
-The main public web entry is the only part exposed to the internet. It receives
-traffic for all domains and sends each request to the correct WordPress website.
+| Component | Location | Role |
+|-----------|----------|------|
+| Public web entry | `proxy/` | Only stack that publishes ports `80` and `443` |
+| SSL certificates | `proxy/` (acme-companion + ZeroSSL) | Issues HTTPS for every site domain |
+| Shared database | `proxy/` (MariaDB) | One container; separate DB per website |
+| Website stack | `sites/<name>/` | WordPress FPM, wp-cli installer, internal nginx |
 
-MariaDB is shared to reduce RAM usage. Each website still gets its own database
-and database user inside the shared MariaDB container.
+Traffic flow: browser → shared nginx-proxy → site nginx → WordPress PHP-FPM →
+shared MariaDB.
 
 ## Requirements
 
 On the server:
 
-- Docker Engine
-- Docker Compose v2
-- DNS records pointing to the server IP
-- inbound ports `80` and `443` open
+- Docker Engine (official install, not Snap)
+- Docker Compose v2 (`docker compose version`)
+- DNS `A` records for each domain pointing to the server public IP
+- Inbound ports `80` and `443` open in the cloud firewall
 
-Example DNS:
+Recommended before the first deploy:
 
-```text
-example.com      -> server public IP
-www.example.com  -> server public IP
-second.com       -> server public IP
-www.second.com   -> server public IP
+```bash
+docker login
 ```
 
-## Deploy First Website
+A free Docker Hub account raises anonymous pull rate limits and avoids flaky
+image downloads on small VPS instances.
+
+## Server setup (one time)
+
+### 1. Install Docker
+
+Use the official Docker Engine install guide for your Linux distribution:
+https://docs.docker.com/engine/install/
+
+Verify:
+
+```bash
+docker --version
+docker compose version
+which docker    # should be /usr/bin/docker, not /snap/bin/docker
+```
+
+### 2. Clone this repository
+
+```bash
+cd /home
+git clone <your-repo-url> wp-fpm
+cd wp-fpm
+```
+
+### 3. Log in to Docker Hub (recommended)
+
+```bash
+docker login
+```
+
+### 4. Open firewall ports
+
+Allow inbound TCP `80` and `443` to the server (AWS Lightsail networking,
+security group, ufw, etc.).
+
+### 5. Point DNS to the server
+
+For each website:
+
+```text
+example.com      A  -> 52.x.x.x
+www.example.com  A  -> 52.x.x.x
+```
+
+## Deploy the first website
 
 From the repository root:
 
@@ -52,43 +98,106 @@ From the repository root:
 sh deploy-site.sh
 ```
 
-Choose:
+Choose **1) Add a new website or update an existing website**.
 
-```text
-1) Add a new website or update an existing website
-```
+### Prompts
 
-The script asks for:
+| Prompt | Example | Notes |
+|--------|---------|-------|
+| Site folder | `modernpack` | Simple folder name under `sites/` |
+| Compose project name | `modernpack` | Lowercase; used by Docker Compose |
+| Start proxy? | **yes** | Required for the **first** site on this server |
+| Server public IP | press Enter | Uses auto-detected IP for DNS check |
+| Apex domain | `modernpack.lk` | No `https://` prefix |
+| WWW domain | `www.modernpack.lk` | |
+| Primary domain | `www.modernpack.lk` | Used for `WORDPRESS_URL` |
+| SSL email | `you@example.com` | ZeroSSL / Let's Encrypt contact |
+| WordPress title / admin / DB values | your choice | Saved to `sites/<folder>/.env` |
 
-- website folder, for example `site-one`
-- Compose project name, for example `site_one`
-- domain and `www` domain
-- primary domain
-- SSL certificate email
-- WordPress title and admin login
-- website database name, username, and password
-
-For the first website, answer yes when it asks:
-
-```text
-Set up the main public web entry too? Choose yes for the first website on this server
-```
-
-You can also run the direct command:
+Direct command (same as the guided flow):
 
 ```bash
-sh deploy-site.sh site-one site_one --start-proxy
+sh deploy-site.sh modernpack modernpack --start-proxy
 ```
 
-The script creates:
+### What the script does
+
+1. Creates `sites/<folder>/` from `sites/site-template/` if needed
+2. Writes or updates `sites/<folder>/.env` and `proxy/.env`
+3. Checks DNS for apex and `www` domains
+4. **Pulls Docker images one at a time with retries** (avoids Hub rate-limit errors)
+5. Starts `proxy/` (nginx-proxy, SSL companion, MariaDB) on first deploy
+6. Creates the website database and user in shared MariaDB
+7. Pulls site images, then starts the website stack
+8. Runs wp-cli to install WordPress and fixes upload folder permissions
+
+You do **not** need to run `docker pull` manually. The deploy script handles it.
+
+### Verify
+
+```bash
+cd proxy
+docker compose ps
+
+cd ../sites/modernpack
+docker compose -p modernpack ps
+```
+
+Expected:
+
+- **proxy:** `shared_nginx_proxy`, `shared_acme_companion`, `shared_mariadb` — Up
+- **site:** `wordpress`, `nginx` — Up; `wpcli` — exited (install finished)
+
+Open `https://www.example.com` in a browser. SSL may take a few minutes on
+first deploy.
+
+## Deploy a second website
+
+The proxy stack already runs after the first site. **Do not** start it again.
+
+```bash
+sh deploy-site.sh
+```
+
+Choose **1**, use a **new** site folder and compose project name, and answer
+**no** when asked to set up the main public web entry.
+
+```bash
+sh deploy-site.sh site-two site_two
+```
+
+Each site needs a unique:
+
+- folder name (`site-one`, `site-two`, …)
+- compose project name (`site_one`, `site_two`, …)
+- database name and database user
+
+## Script menu
+
+```bash
+sh deploy-site.sh
+```
+
+| Option | Purpose |
+|--------|---------|
+| 1 | Add or update a website |
+| 2 | Start the proxy stack only |
+| 3 | Check DNS for a site |
+| 4 | Retry SSL after DNS is fixed |
+| 5 | Fix WordPress upload / migration folder permissions |
+| 6 | Show running status |
+| 0 | Exit |
+
+## Configuration files
+
+After the first deploy:
 
 ```text
-proxy/.env
-sites/site-one/.env
-sites/site-one/
+proxy/.env                 SHARED_MYSQL_ROOT_PASSWORD, DEFAULT_EMAIL
+sites/<folder>/.env        domain, WordPress, and database settings
 ```
 
-Example site `.env` values:
+Example `sites/<folder>/.env`:
 
 ```env
 DOMAIN=example.com
@@ -109,86 +218,16 @@ WORDPRESS_DB_USER=site_one_user
 WORDPRESS_DB_PASSWORD=change_this_db_password
 ```
 
-During deployment the script checks DNS. If it says the domain does not resolve
-to the server IP yet, fix your DNS `A` records first:
+Rules:
 
-```text
-example.com      -> server public IP
-www.example.com  -> server public IP
-```
+- `DOMAIN`, `WWW_DOMAIN`, and `PRIMARY_DOMAIN` are hostnames only — not URLs
+- `WORDPRESS_URL` must include `https://` and match `PRIMARY_DOMAIN`
+- Do not publish ports `80` or `443` from individual site stacks
+- Do not expose MariaDB publicly (`proxy/.env` binds MySQL to `127.0.0.1` by default)
 
-When the script asks for the server public IP, press Enter to use the detected
-IP unless you know it is wrong. Do not enter the domain name in that prompt.
+## Day-to-day operations
 
-Check containers:
-
-```bash
-cd proxy
-docker compose ps
-
-cd ../sites/site-one
-docker compose -p site_one ps
-```
-
-## Deploy Second Website Later
-
-Do not create another main public web entry for the second website. The first
-website already started it, and the same entry is reused for every website on
-the server.
-
-From the repository root:
-
-```bash
-sh deploy-site.sh
-```
-
-Choose:
-
-```text
-1) Add a new website or update an existing website
-```
-
-Use a different website folder, Compose project name, database name, and
-database user:
-
-```text
-Site folder: site-two
-Compose project name: site_two
-Website database name: site_two_db
-Website database username: site_two_user
-```
-
-Answer no when it asks to set up the main public web entry:
-
-```text
-Set up the main public web entry too? Choose yes for the first website on this server [y/N]: N
-```
-
-You can also run:
-
-```bash
-sh deploy-site.sh site-two site_two
-```
-
-This does not recreate or modify `site_one` containers, files, or database data.
-The script creates a new database and database user inside the shared MariaDB
-container for `site_two`.
-
-## Important Rules
-
-- Start the main public web entry once for the first website, then leave it running.
-- Do not create a second main public web entry for the second website.
-- Use a unique folder per website: `site-one`, `site-two`, etc.
-- Use a unique Compose project per website: `site_one`, `site_two`, etc.
-- Use a unique database name and database user per website.
-- Do not publish ports `80` or `443` from individual website stacks.
-- Do not expose MariaDB ports publicly.
-- Do not reuse database passwords between websites unless you intentionally want that.
-- Make sure `DOMAIN`, `WWW_DOMAIN`, and `WORDPRESS_URL` match the real domain.
-
-## Update One Website
-
-Update only site one:
+### Update one website
 
 ```bash
 cd sites/site-one
@@ -196,29 +235,25 @@ docker compose -p site_one pull
 docker compose -p site_one up -d
 ```
 
-Update only site two:
+Or rerun the deploy script (it will pull images with retries automatically):
 
 ```bash
-cd sites/site-two
-docker compose -p site_two pull
-docker compose -p site_two up -d
+sh deploy-site.sh site-one site_one
 ```
 
-## Stop One Website
-
-Stop site two without touching site one:
+### Stop one website (others keep running)
 
 ```bash
 cd sites/site-two
 docker compose -p site_two down
 ```
 
-Do not add `-v` unless you understand exactly which volumes will be removed.
-The shared MariaDB data is in the `proxy/` stack, not the site stack.
+Do not add `-v` unless you know which volumes will be removed. Shared MariaDB
+data lives in the `proxy/` stack.
 
-## Logs
+### View logs
 
-Main public web entry and shared database logs:
+Proxy and shared database:
 
 ```bash
 cd proxy
@@ -227,45 +262,61 @@ docker compose logs --tail=100 acme-companion
 docker compose logs --tail=100 mariadb
 ```
 
-Website logs:
+Website:
 
 ```bash
 cd sites/site-one
 docker compose -p site_one logs --tail=100 nginx
 docker compose -p site_one logs --tail=100 wordpress
-docker compose -p site_one logs --tail=100 wpcli
+docker compose -p site_one logs --tail=200 wpcli
 ```
-
-## Script Menu
-
-Run:
-
-```bash
-sh deploy-site.sh
-```
-
-Menu options:
-
-```text
-1) Add a new website or update an existing website
-2) Start the main public web entry only
-3) Check if a website domain points to this server
-4) Retry SSL certificate after fixing DNS
-5) Fix WordPress upload/import permissions
-6) Show running status
-0) Exit
-```
-
-Use option `3` after changing DNS records. Use option `4` after DNS is correct
-if HTTPS was previously failing.
-
-Use option `5` if plugins such as All-in-One WP Migration cannot read or write
-backup/import files. It safely fixes writable WordPress folders using
-`www-data:www-data`, not `777`.
 
 ## Troubleshooting
 
-If HTTPS is not issued:
+### Docker image pull fails (`auth.docker.io`, `404`, `timeout`)
+
+The deploy script pulls images **sequentially with retries** and then runs
+`docker compose up --pull never` so Compose does not re-pull in parallel.
+
+If deploy still fails:
+
+```bash
+docker login
+sh deploy-site.sh <site-folder> <compose-project>
+```
+
+Test Docker Hub from the server:
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" \
+  "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/nginx:pull"
+```
+
+Expected: `200`. If not, fix DNS and restart Docker:
+
+```bash
+sudo tee /etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+sudo systemctl restart docker
+```
+
+Increase pull retries (optional):
+
+```bash
+DOCKER_PULL_RETRIES=8 sh deploy-site.sh modernpack modernpack
+```
+
+### Proxy started but site stack failed
+
+Proxy and database may already be running. Finish the site without `--start-proxy`:
+
+```bash
+sh deploy-site.sh modernpack modernpack
+```
+
+### HTTPS not issued
 
 ```bash
 cd proxy
@@ -275,58 +326,34 @@ docker compose logs --tail=200 acme-companion
 Check:
 
 - DNS points to this server
-- ports `80` and `443` are open
-- `DOMAIN` and `WWW_DOMAIN` are hostnames only, not URLs
-- the website nginx container is running
+- Ports `80` and `443` are open
+- Site nginx container is running
 
-If WordPress does not install:
+After fixing DNS, use menu option **4** or:
+
+```bash
+cd proxy && docker compose restart acme-companion
+```
+
+### WordPress not installed / wpcli errors
 
 ```bash
 cd sites/site-one
 docker compose -p site_one logs --tail=200 wpcli
-
 cd ../../proxy
 docker compose logs --tail=200 mariadb
 ```
 
-If `wpcli` shows `Access denied for user`, check that the site's `.env` database
-values are correct:
-
-```env
-WORDPRESS_DB_NAME=site_one_db
-WORDPRESS_DB_USER=site_one_user
-WORDPRESS_DB_PASSWORD=your_db_password
-```
-
-Then rerun the deploy script so it creates or updates that database user:
+If logs show `Access denied for user`, fix `sites/<folder>/.env` and rerun:
 
 ```bash
 sh deploy-site.sh site-one site_one
 ```
 
-Do not run `docker compose down -v` in the `proxy/` folder on a live server
-unless you intend to delete the shared MariaDB data for all websites.
+### MariaDB root `Access denied` when creating database
 
-If All-in-One WP Migration or another plugin reports that it cannot open a file
-inside `wp-content`, fix permissions from the menu:
-
-```bash
-sh deploy-site.sh
-```
-
-Choose:
-
-```text
-5) Fix WordPress upload/import permissions
-```
-
-The deploy script also runs this permission repair automatically after a
-successful website deployment.
-
-If the deploy script says `Access denied for user 'root'@'localhost'` while
-creating the database, the shared MariaDB root login is not ready yet or the
-`proxy_db_data` volume was already initialized with a different root password.
-For a fresh server with no real website data, reset the shared stack:
+The shared MariaDB volume was initialized with a different root password. On a
+**fresh** server with no data to keep:
 
 ```bash
 cd proxy
@@ -334,17 +361,36 @@ docker compose down -v
 docker compose up -d
 ```
 
-For a live server, do not reset the volume. Use the original
-`SHARED_MYSQL_ROOT_PASSWORD` from `proxy/.env`.
+On a **live** server, use the original `SHARED_MYSQL_ROOT_PASSWORD` from
+`proxy/.env`. Never run `docker compose down -v` in `proxy/` on production unless
+you intend to delete **all** website databases.
 
-If image pull fails, check that this Docker tag exists:
+### Plugin cannot write uploads or migration files
+
+```bash
+sh deploy-site.sh
+```
+
+Choose **5) Fix WordPress upload/import permissions**.
+
+### Invalid WordPress image tag
+
+Confirm the tag exists on Docker Hub:
 
 ```text
 wordpress:${WORDPRESS_VERSION}-php${PHP_VERSION}-fpm
 ```
 
-Example:
+Example: `wordpress:6.9.4-php8.3-fpm`
 
-```text
-wordpress:6.9.4-php8.3-fpm
-```
+## Important rules
+
+- Start the proxy stack **once** (first website), then leave it running
+- Never start a second proxy stack for additional sites
+- One unique folder, compose project, database name, and DB user per website
+- Do not run `docker compose down -v` in `proxy/` on a live server without a backup plan
+
+## Related docs
+
+- `wordpress-site-db-import-runbook.md` — import an existing WordPress database
+- `deploy-site.sh help` — command-line usage

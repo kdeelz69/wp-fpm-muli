@@ -17,12 +17,122 @@ Examples:
   sh deploy-site.sh site-one site_one --start-proxy
   sh deploy-site.sh site-two site_two
 
+The script pulls Docker images one at a time with retries, then starts
+containers with "docker compose up --pull never".
+
 Run without arguments for the guided menu.
 EOF
 }
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+DOCKER_PULL_RETRIES="${DOCKER_PULL_RETRIES:-5}"
+
+docker_pull_with_retry() {
+  image="$1"
+  attempt=1
+
+  while [ "$attempt" -le "$DOCKER_PULL_RETRIES" ]; do
+    echo "Pulling $image (attempt $attempt/$DOCKER_PULL_RETRIES)..."
+    if docker pull "$image"; then
+      return 0
+    fi
+
+    if [ "$attempt" -lt "$DOCKER_PULL_RETRIES" ]; then
+      wait=$((attempt * 5))
+      echo "Pull failed for $image. Retrying in ${wait}s..."
+      sleep "$wait"
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "Error: could not pull $image after $DOCKER_PULL_RETRIES attempts."
+  return 1
+}
+
+pull_images_sequential() {
+  for image in "$@"; do
+    docker_pull_with_retry "$image" || return 1
+  done
+}
+
+pull_proxy_images() {
+  echo "Pulling proxy stack images (one at a time to avoid Docker Hub rate limits)..."
+  pull_images_sequential \
+    mariadb:10.11 \
+    nginxproxy/nginx-proxy:alpine \
+    nginxproxy/acme-companion:2.5.2
+}
+
+pull_site_images() {
+  env_file="$1"
+  wp_version="$(load_env_value "$env_file" WORDPRESS_VERSION)"
+  php_version="$(load_env_value "$env_file" PHP_VERSION)"
+
+  if [ -z "$wp_version" ] || [ -z "$php_version" ]; then
+    echo "Error: WORDPRESS_VERSION and PHP_VERSION must be set in $env_file"
+    return 1
+  fi
+
+  echo "Pulling site stack images (one at a time to avoid Docker Hub rate limits)..."
+  pull_images_sequential \
+    "wordpress:${wp_version}-php${php_version}-fpm" \
+    "wordpress:cli-php${php_version}" \
+    "nginx:stable"
+}
+
+check_docker_registry() {
+  if ! command_exists docker; then
+    echo "Error: docker is not installed or not in PATH."
+    exit 1
+  fi
+
+  if command_exists curl; then
+    status="$(curl -fsS -o /dev/null -w "%{http_code}" \
+      "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/nginx:pull" \
+      2>/dev/null || printf "000")"
+    if [ "$status" != "200" ]; then
+      echo "Warning: Docker Hub auth check returned HTTP $status."
+      echo "Image pulls may fail until network or DNS is fixed."
+      if ! confirm "Continue anyway?"; then
+        exit 1
+      fi
+    fi
+  fi
+
+  if [ ! -f "${HOME:-/root}/.docker/config.json" ] || ! grep -q '"auths"' "${HOME:-/root}/.docker/config.json" 2>/dev/null; then
+    echo "Tip: run 'docker login' once on this server for higher Docker Hub pull limits."
+  fi
+}
+
+compose_up() {
+  dir="$1"
+  project_flag="${2:-}"
+  if [ -n "$project_flag" ]; then
+    (cd "$dir" && docker compose -p "$project_flag" up -d --pull never)
+  else
+    (cd "$dir" && docker compose up -d --pull never)
+  fi
+}
+
+print_pull_failure_help() {
+  cat <<'EOF'
+
+Docker image pull failed. The deploy script already retried each image separately.
+
+Try on the server:
+  docker login
+  sh deploy-site.sh
+
+If pulls still fail intermittently:
+  curl -sS -o /dev/null -w "%{http_code}\n" \
+    "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/nginx:pull"
+
+Expected HTTP code: 200. If not, fix DNS (for example nameserver 1.1.1.1) and restart Docker:
+  sudo systemctl restart docker
+EOF
 }
 
 is_ipv4() {
@@ -325,8 +435,17 @@ check_site_dns() {
 
 start_proxy() {
   ensure_proxy_env
+  check_docker_registry
+  if ! pull_proxy_images; then
+    print_pull_failure_help
+    exit 1
+  fi
   echo "Starting main public web entry and shared database..."
-  (cd "$PROXY_DIR" && docker compose up -d)
+  if ! compose_up "$PROXY_DIR"; then
+    echo "Error: proxy stack did not start."
+    echo "Check logs: cd proxy && docker compose logs --tail=100"
+    exit 1
+  fi
 }
 
 create_site_database() {
@@ -472,12 +591,20 @@ deploy_site() {
 
   if [ "$start_proxy_flag" = "--start-proxy" ]; then
     start_proxy
+  else
+    check_docker_registry
   fi
 
   create_site_database "$site_folder" "$project_name"
 
+  site_env_file="$ROOT_DIR/sites/$site_folder/.env"
+  if ! pull_site_images "$site_env_file"; then
+    print_pull_failure_help
+    exit 1
+  fi
+
   echo "Starting site stack: $project_name"
-  if ! (cd "$ROOT_DIR/sites/$site_folder" && docker compose -p "$project_name" up -d); then
+  if ! compose_up "$ROOT_DIR/sites/$site_folder" "$project_name"; then
     echo
     echo "Website stack did not finish starting."
     echo

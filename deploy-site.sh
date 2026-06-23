@@ -270,6 +270,18 @@ load_env_value() {
   sed -n "s/^$key=//p" "$file" | tail -n 1 | sed 's/^"//; s/"$//'
 }
 
+update_env_value() {
+  file="$1"
+  key="$2"
+  value="$3"
+  tmp="$file.tmp"
+  if grep -q "^$key=" "$file"; then
+    sed "s|^$key=.*|$key=$value|" "$file" > "$tmp" && mv "$tmp" "$file"
+  else
+    printf "%s=%s\n" "$key" "$value" >> "$file"
+  fi
+}
+
 sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
@@ -520,6 +532,94 @@ restart_acme() {
   echo "  cd proxy && docker compose logs --tail=200 acme-companion"
 }
 
+run_wp() {
+  site_dir="$1"
+  project_name="$2"
+  shift 2
+  (cd "$site_dir" && docker compose -p "$project_name" run --rm -T wpcli wp "$@" --path=/var/www/html)
+}
+
+change_site_domain() {
+  site_folder="$1"
+  project_name="$2"
+  site_dir="$ROOT_DIR/sites/$site_folder"
+  env_file="$site_dir/.env"
+
+  if [ ! -f "$env_file" ]; then
+    echo "Error: missing $env_file"
+    echo "Add the website first with option 1."
+    exit 1
+  fi
+
+  old_domain="$(load_env_value "$env_file" DOMAIN)"
+  old_www="$(load_env_value "$env_file" WWW_DOMAIN)"
+  old_primary="$(load_env_value "$env_file" PRIMARY_DOMAIN)"
+
+  echo
+  echo "Current domain values for sites/$site_folder:"
+  echo "  DOMAIN=$old_domain"
+  echo "  WWW_DOMAIN=$old_www"
+  echo "  PRIMARY_DOMAIN=$old_primary"
+  echo
+
+  new_domain="$(prompt_required "New apex domain, for example example.com")"
+  new_www="$(prompt_default "New WWW domain" "www.$new_domain")"
+  new_primary="$(prompt_default "New primary domain" "$new_www")"
+  new_url="https://$new_primary"
+
+  echo
+  echo "This will change the domain from:"
+  echo "  $old_domain / $old_www"
+  echo "to:"
+  echo "  $new_domain / $new_www  (primary: $new_primary)"
+  echo
+  echo "It updates sites/$site_folder/.env, rewrites the WordPress database URLs,"
+  echo "and recreates the website's web server so a new SSL certificate is requested."
+  if ! confirm "Continue?"; then
+    echo "Cancelled. No changes made."
+    return 0
+  fi
+
+  # 1) Update the .env so nginx VIRTUAL_HOST/LETSENCRYPT_HOST and WordPress URL change.
+  update_env_value "$env_file" DOMAIN "$new_domain"
+  update_env_value "$env_file" WWW_DOMAIN "$new_www"
+  update_env_value "$env_file" PRIMARY_DOMAIN "$new_primary"
+  update_env_value "$env_file" WORDPRESS_URL "$new_url"
+  echo "Updated $env_file."
+
+  # 2) Check DNS for the new domain (reads the freshly written .env).
+  check_site_dns "$site_folder"
+
+  # 3) Rewrite the URLs stored in the WordPress database.
+  echo
+  echo "Updating WordPress database URLs (this fixes stored links and redirects)..."
+  if [ -n "$old_www" ] && [ "$old_www" != "$new_www" ]; then
+    run_wp "$site_dir" "$project_name" search-replace "//$old_www" "//$new_www" --all-tables --skip-columns=guid || true
+  fi
+  if [ -n "$old_domain" ] && [ "$old_domain" != "$new_domain" ]; then
+    run_wp "$site_dir" "$project_name" search-replace "//$old_domain" "//$new_domain" --all-tables --skip-columns=guid || true
+  fi
+  run_wp "$site_dir" "$project_name" option update home "$new_url"
+  run_wp "$site_dir" "$project_name" option update siteurl "$new_url"
+  run_wp "$site_dir" "$project_name" cache flush || true
+
+  # 4) Recreate the website web server so the new domain and certificate take effect.
+  echo
+  echo "Recreating the website web server with the new domain..."
+  if ! (cd "$site_dir" && docker compose -p "$project_name" up -d --pull never nginx); then
+    echo "Error: could not recreate the website web server."
+    echo "Check status:"
+    echo "  cd sites/$site_folder && docker compose -p $project_name ps"
+    exit 1
+  fi
+
+  echo
+  echo "Domain changed to $new_primary."
+  echo "A new SSL certificate is requested automatically. Watch progress with:"
+  echo "  cd proxy && docker compose logs --tail=200 acme-companion"
+  echo "If the certificate does not appear after DNS is correct, use menu option 4."
+}
+
 fix_wordpress_permissions() {
   site_folder="$1"
   project_name="$2"
@@ -670,6 +770,13 @@ fix_permissions_menu() {
   fix_wordpress_permissions "$site_folder" "$project_name"
 }
 
+change_domain_menu() {
+  site_folder="$(prompt_required "Website folder, for example site-one")"
+  default_project="$(printf "%s" "$site_folder" | tr '-' '_')"
+  project_name="$(prompt_default "Compose project name" "$default_project")"
+  change_site_domain "$site_folder" "$project_name"
+}
+
 show_status() {
   echo
   echo "Main public web entry:"
@@ -689,6 +796,7 @@ menu() {
     echo "4) Retry SSL certificate after fixing DNS"
     echo "5) Fix WordPress upload/import permissions"
     echo "6) Show running status"
+    echo "7) Change a website's domain"
     echo "0) Exit"
     printf "Choose: "
     IFS= read -r choice
@@ -700,6 +808,7 @@ menu() {
       4) restart_acme ;;
       5) fix_permissions_menu ;;
       6) show_status ;;
+      7) change_domain_menu ;;
       0) exit 0 ;;
       *) echo "Unknown option." ;;
     esac

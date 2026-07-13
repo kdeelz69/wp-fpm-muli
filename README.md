@@ -186,6 +186,8 @@ sh deploy-site.sh
 | 4 | Retry SSL after DNS is fixed |
 | 5 | Fix WordPress upload / migration folder permissions |
 | 6 | Show running status |
+| 7 | Change a website's domain |
+| 8 | Install manual SSL certificate from external provider |
 | 0 | Exit |
 
 ## Configuration files
@@ -270,6 +272,92 @@ docker compose -p site_one logs --tail=100 nginx
 docker compose -p site_one logs --tail=100 wordpress
 docker compose -p site_one logs --tail=200 wpcli
 ```
+
+## Manual SSL certificate from an external provider
+
+The existing scripts request free ACME certificates automatically:
+
+- `proxy/acme-companion` issues certificates for the shared multi-site proxy
+- `certbot/run-certbot.sh` is for the older single-site/root stack
+
+Use menu option **8** to install a paid/manual SSL certificate. For the current
+shared proxy setup, the script installs the external certificate directly into
+the proxy certificate volume.
+
+Use this only after the site has already been created and the proxy is running.
+
+### 1. Prepare the certificate files
+
+From the SSL provider, collect:
+
+```text
+fullchain.pem   server certificate followed by intermediate/CA bundle
+private.key     unencrypted private key for the certificate
+```
+
+If the provider gives separate files, build `fullchain.pem` in this order:
+
+```bash
+cat server-certificate.crt intermediate-ca-bundle.crt > fullchain.pem
+```
+
+If the private key has a passphrase, remove it before installing:
+
+```bash
+openssl rsa -in private-with-passphrase.key -out private.key
+```
+
+### 2. Run the manual SSL menu option
+
+From the repository root:
+
+```bash
+sh deploy-site.sh
+```
+
+Choose **8) Install manual SSL certificate from external provider**.
+
+The script will ask for:
+
+| Prompt | Example | Notes |
+|--------|---------|-------|
+| Website folder | `modernpack` | Existing folder under `sites/` |
+| Compose project name | `modernpack` | Same value used when deploying the site |
+| Certificate folder | `manual-certs/modernpack.lk` | Folder containing the provider files |
+| Fullchain filename | `fullchain.pem` | Server certificate plus intermediates |
+| Private key filename | `private.key` | Unencrypted PEM private key |
+
+The script then:
+
+1. Detects the live proxy certificate Docker volume from `shared_nginx_proxy`
+2. Removes `LETSENCRYPT_HOST` and `LETSENCRYPT_EMAIL` from that site's
+   `docker-compose.yml`
+3. Saves a backup as `sites/<folder>/docker-compose.yml.manual-ssl.bak`
+4. Copies the certificate and key into the proxy cert volume for the apex,
+   `www`, and primary domains
+5. Recreates that site's nginx container
+6. Restarts `shared_nginx_proxy`
+
+### 3. Example folder layout
+
+```bash
+mkdir -p manual-certs/example.com
+# upload or copy fullchain.pem and private.key into manual-certs/example.com/
+```
+
+When the external certificate is renewed later, replace the files in the same
+folder and run menu option **8** again.
+
+### 4. Verify
+
+Verify the certificate being served:
+
+```bash
+openssl s_client -connect example.com:443 -servername example.com </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -issuer -dates
+```
+
+Repeat the check for `www.example.com`.
 
 ## Troubleshooting
 

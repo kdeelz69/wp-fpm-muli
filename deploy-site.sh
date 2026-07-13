@@ -532,6 +532,181 @@ restart_acme() {
   echo "  cd proxy && docker compose logs --tail=200 acme-companion"
 }
 
+get_proxy_cert_volume() {
+  docker inspect shared_nginx_proxy \
+    --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/certs"}}{{.Name}}{{end}}{{end}}' \
+    2>/dev/null || true
+}
+
+disable_site_acme() {
+  site_dir="$1"
+  compose_file="$site_dir/docker-compose.yml"
+  tmp="$compose_file.tmp"
+
+  if [ ! -f "$compose_file" ]; then
+    echo "Error: missing $compose_file"
+    exit 1
+  fi
+
+  if grep -Eq '^[[:space:]]*LETSENCRYPT_(HOST|EMAIL):' "$compose_file"; then
+    cp "$compose_file" "$compose_file.manual-ssl.bak"
+    sed '/^[[:space:]]*LETSENCRYPT_HOST:/d; /^[[:space:]]*LETSENCRYPT_EMAIL:/d' "$compose_file" > "$tmp"
+    mv "$tmp" "$compose_file"
+    echo "Disabled automatic ACME certificate requests in $compose_file."
+    echo "Backup saved: $compose_file.manual-ssl.bak"
+  else
+    echo "Automatic ACME certificate lines are already absent in $compose_file."
+  fi
+}
+
+install_manual_ssl() {
+  site_folder="$1"
+  project_name="$2"
+  site_dir="$ROOT_DIR/sites/$site_folder"
+  env_file="$site_dir/.env"
+
+  if [ ! -f "$env_file" ]; then
+    echo "Error: missing $env_file"
+    echo "Add the website first with option 1."
+    exit 1
+  fi
+
+  if ! docker ps --format '{{.Names}}' | grep -qx 'shared_nginx_proxy'; then
+    echo "Error: shared_nginx_proxy is not running."
+    echo "Start the main public web entry first with menu option 2."
+    exit 1
+  fi
+
+  domain="$(load_env_value "$env_file" DOMAIN)"
+  www_domain="$(load_env_value "$env_file" WWW_DOMAIN)"
+  primary_domain="$(load_env_value "$env_file" PRIMARY_DOMAIN)"
+
+  if [ -z "$domain" ] || [ -z "$www_domain" ]; then
+    echo "Error: DOMAIN and WWW_DOMAIN must be set in $env_file"
+    exit 1
+  fi
+
+  echo
+  echo "Manual SSL install for sites/$site_folder:"
+  echo "  DOMAIN=$domain"
+  echo "  WWW_DOMAIN=$www_domain"
+  if [ -n "$primary_domain" ]; then
+    echo "  PRIMARY_DOMAIN=$primary_domain"
+  fi
+  echo
+  echo "The certificate must cover every hostname above that users will open."
+
+  cert_dir_input="$(prompt_required "Folder containing the external certificate files")"
+  case "$cert_dir_input" in
+    /*) cert_dir="$cert_dir_input" ;;
+    *) cert_dir="$ROOT_DIR/$cert_dir_input" ;;
+  esac
+
+  fullchain_name="$(prompt_default "Fullchain certificate filename" "fullchain.pem")"
+  private_key_name="$(prompt_default "Private key filename" "private.key")"
+  fullchain_file="$cert_dir/$fullchain_name"
+  private_key_file="$cert_dir/$private_key_name"
+
+  if [ ! -d "$cert_dir" ]; then
+    echo "Error: certificate folder does not exist: $cert_dir"
+    exit 1
+  fi
+
+  if [ ! -f "$fullchain_file" ]; then
+    echo "Error: missing certificate file: $fullchain_file"
+    exit 1
+  fi
+
+  if [ ! -f "$private_key_file" ]; then
+    echo "Error: missing private key file: $private_key_file"
+    exit 1
+  fi
+
+  if command_exists openssl; then
+    if ! openssl x509 -in "$fullchain_file" -noout >/dev/null 2>&1; then
+      echo "Error: $fullchain_file is not a readable PEM certificate."
+      exit 1
+    fi
+
+    if ! openssl pkey -in "$private_key_file" -noout -passin pass: >/dev/null 2>&1; then
+      echo "Error: $private_key_file is not a readable unencrypted PEM private key."
+      echo "If it has a passphrase, remove it first:"
+      echo "  openssl rsa -in private-with-passphrase.key -out private.key"
+      exit 1
+    fi
+  fi
+
+  cert_volume="$(get_proxy_cert_volume)"
+  if [ -z "$cert_volume" ]; then
+    echo "Error: could not detect the nginx-proxy certificate volume."
+    echo "Check the proxy status with: cd proxy && docker compose ps"
+    exit 1
+  fi
+
+  cert_names=""
+  for name in "$domain" "$www_domain" "$primary_domain"; do
+    [ -n "$name" ] || continue
+    case " $cert_names " in
+      *" $name "*) ;;
+      *) cert_names="${cert_names}${cert_names:+ }$name" ;;
+    esac
+  done
+
+  echo
+  echo "This will:"
+  echo "  - install the external certificate into Docker volume: $cert_volume"
+  echo "  - write certificate files for: $cert_names"
+  echo "  - remove LETSENCRYPT_HOST/LETSENCRYPT_EMAIL from this site's compose file"
+  echo "  - recreate this site's nginx container"
+  echo "  - restart shared_nginx_proxy"
+  echo
+  if ! confirm "Continue installing the manual SSL certificate?"; then
+    echo "Cancelled. No changes made."
+    return 0
+  fi
+
+  disable_site_acme "$site_dir"
+
+  echo "Copying manual certificate into proxy certificate volume..."
+  if ! docker run --rm \
+    -e CERT_NAMES="$cert_names" \
+    -e FULLCHAIN_NAME="$fullchain_name" \
+    -e PRIVATE_KEY_NAME="$private_key_name" \
+    -v "$cert_volume:/certs" \
+    -v "$cert_dir:/input:ro" \
+    nginxproxy/nginx-proxy:alpine sh -c '
+      set -eu
+      for name in $CERT_NAMES; do
+        cp "/input/$FULLCHAIN_NAME" "/certs/$name.crt"
+        cp "/input/$PRIVATE_KEY_NAME" "/certs/$name.key"
+        chmod 644 "/certs/$name.crt"
+        chmod 600 "/certs/$name.key"
+      done
+    '; then
+    echo "Error: could not copy certificate files into the proxy certificate volume."
+    exit 1
+  fi
+
+  echo "Recreating website nginx so ACME labels are removed..."
+  if ! (cd "$site_dir" && docker compose -p "$project_name" up -d --pull never nginx); then
+    echo "Error: could not recreate website nginx."
+    echo "Check status:"
+    echo "  cd sites/$site_folder && docker compose -p $project_name ps"
+    exit 1
+  fi
+
+  echo "Restarting shared nginx proxy..."
+  (cd "$PROXY_DIR" && docker compose restart nginx-proxy)
+
+  echo
+  echo "Manual SSL certificate installed."
+  echo "Verify from the server with:"
+  echo "  openssl s_client -connect $domain:443 -servername $domain </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -dates"
+  if [ "$www_domain" != "$domain" ]; then
+    echo "  openssl s_client -connect $www_domain:443 -servername $www_domain </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -dates"
+  fi
+}
+
 run_wp() {
   site_dir="$1"
   project_name="$2"
@@ -777,6 +952,13 @@ change_domain_menu() {
   change_site_domain "$site_folder" "$project_name"
 }
 
+manual_ssl_menu() {
+  site_folder="$(prompt_required "Website folder, for example site-one")"
+  default_project="$(printf "%s" "$site_folder" | tr '-' '_')"
+  project_name="$(prompt_default "Compose project name" "$default_project")"
+  install_manual_ssl "$site_folder" "$project_name"
+}
+
 show_status() {
   echo
   echo "Main public web entry:"
@@ -797,6 +979,7 @@ menu() {
     echo "5) Fix WordPress upload/import permissions"
     echo "6) Show running status"
     echo "7) Change a website's domain"
+    echo "8) Install manual SSL certificate from external provider"
     echo "0) Exit"
     printf "Choose: "
     IFS= read -r choice
@@ -809,6 +992,7 @@ menu() {
       5) fix_permissions_menu ;;
       6) show_status ;;
       7) change_domain_menu ;;
+      8) manual_ssl_menu ;;
       0) exit 0 ;;
       *) echo "Unknown option." ;;
     esac

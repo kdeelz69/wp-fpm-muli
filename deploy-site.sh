@@ -177,7 +177,7 @@ prompt_required() {
 valid_secret() {
   [ "${#1}" -ge 16 ] || return 1
   case "$1" in
-    *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~!@%+=:,/-]*) return 1 ;;
+    *"'"*) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -200,7 +200,7 @@ prompt_secret() {
       IFS= read -r value
     fi
     if ! valid_secret "$value"; then
-      echo "Use at least 16 letters, numbers, or these safe symbols: . _ ~ ! @ % + = : , / -" >&2
+      echo "Use at least 16 characters. Single quotes are not supported." >&2
     fi
   done
   printf "%s" "$value"
@@ -299,7 +299,7 @@ check_dns_name() {
 load_env_value() {
   file="$1"
   key="$2"
-  sed -n "s/^$key=//p" "$file" | tail -n 1 | sed 's/^"//; s/"$//'
+  sed -n "s/^$key=//p" "$file" | tail -n 1 | sed "s/^[\"']//; s/[\"']$//"
 }
 
 update_env_value() {
@@ -324,7 +324,7 @@ ensure_proxy_env() {
     root_password="$(prompt_secret "Shared MariaDB root password")"
     {
       printf "DEFAULT_EMAIL=%s\n" "$email"
-      printf "SHARED_MYSQL_ROOT_PASSWORD=%s\n" "$root_password"
+      printf "SHARED_MYSQL_ROOT_PASSWORD='%s'\n" "$root_password"
     } > "$PROXY_DIR/.env"
     echo "Created proxy/.env."
     return 0
@@ -332,7 +332,7 @@ ensure_proxy_env() {
 
   if ! grep -q '^SHARED_MYSQL_ROOT_PASSWORD=' "$PROXY_DIR/.env"; then
     root_password="$(prompt_secret "Shared MariaDB root password")"
-    printf "SHARED_MYSQL_ROOT_PASSWORD=%s\n" "$root_password" >> "$PROXY_DIR/.env"
+    printf "SHARED_MYSQL_ROOT_PASSWORD='%s'\n" "$root_password" >> "$PROXY_DIR/.env"
     echo "Added SHARED_MYSQL_ROOT_PASSWORD to proxy/.env."
   fi
 }
@@ -412,12 +412,12 @@ PHP_VERSION=$php_version
 WORDPRESS_URL=https://$primary_domain
 WORDPRESS_SITE_TITLE="$site_title"
 WORDPRESS_ADMIN_USER=$admin_user
-WORDPRESS_ADMIN_PASSWORD=$admin_password
+WORDPRESS_ADMIN_PASSWORD='$admin_password'
 WORDPRESS_ADMIN_EMAIL=$admin_email
 
 WORDPRESS_DB_NAME=$db_name
 WORDPRESS_DB_USER=$db_user
-WORDPRESS_DB_PASSWORD=$db_password
+WORDPRESS_DB_PASSWORD='$db_password'
 EOF
 
   echo "Saved $env_file."

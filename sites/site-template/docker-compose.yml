@@ -97,8 +97,6 @@ services:
     depends_on:
       wordpress:
         condition: service_started
-      wpcli:
-        condition: service_completed_successfully
     environment:
       DOMAIN: ${DOMAIN}
       WWW_DOMAIN: ${WWW_DOMAIN}

@@ -174,38 +174,6 @@ prompt_required() {
   printf "%s" "$value"
 }
 
-valid_secret() {
-  [ "${#1}" -ge 16 ] || return 1
-  case "$1" in
-    *"'"*) return 1 ;;
-    *) return 0 ;;
-  esac
-}
-
-prompt_secret() {
-  label="$1"
-  value=""
-  while ! valid_secret "$value"; do
-    printf "%s (minimum 16 characters): " "$label" >&2
-    if [ -t 0 ]; then
-      stty -echo
-      IFS= read -r value || {
-        stty echo
-        printf "\n" >&2
-        return 1
-      }
-      stty echo
-      printf "\n" >&2
-    else
-      IFS= read -r value
-    fi
-    if ! valid_secret "$value"; then
-      echo "Use at least 16 characters. Single quotes are not supported." >&2
-    fi
-  done
-  printf "%s" "$value"
-}
-
 prompt_default() {
   label="$1"
   default="$2"
@@ -278,28 +246,28 @@ resolve_domain() {
 }
 
 check_dns_name() {
-  dns_name="$1"
+  domain="$1"
   expected_ip="$2"
-  actual_ip="$(resolve_domain "$dns_name" || true)"
+  actual_ip="$(resolve_domain "$domain" || true)"
 
   if [ -z "$actual_ip" ]; then
-    echo "DNS check failed: $dns_name does not resolve yet."
+    echo "DNS check failed: $domain does not resolve yet."
     return 1
   fi
 
   if [ "$actual_ip" != "$expected_ip" ]; then
-    echo "DNS check failed: $dns_name resolves to $actual_ip, expected $expected_ip."
+    echo "DNS check failed: $domain resolves to $actual_ip, expected $expected_ip."
     return 1
   fi
 
-  echo "DNS ok: $dns_name -> $actual_ip"
+  echo "DNS ok: $domain -> $actual_ip"
   return 0
 }
 
 load_env_value() {
   file="$1"
   key="$2"
-  sed -n "s/^$key=//p" "$file" | tail -n 1 | sed "s/^[\"']//; s/[\"']$//"
+  sed -n "s/^$key=//p" "$file" | tail -n 1 | sed 's/^"//; s/"$//'
 }
 
 update_env_value() {
@@ -321,22 +289,20 @@ sql_escape() {
 ensure_proxy_env() {
   if [ ! -f "$PROXY_DIR/.env" ]; then
     email="$(prompt_required "Default SSL certificate email")"
-    root_password="$(prompt_secret "Shared MariaDB root password")"
+    root_password="$(prompt_required "Shared MariaDB root password")"
     {
       printf "DEFAULT_EMAIL=%s\n" "$email"
-      printf "SHARED_MYSQL_ROOT_PASSWORD='%s'\n" "$root_password"
+      printf "SHARED_MYSQL_ROOT_PASSWORD=%s\n" "$root_password"
     } > "$PROXY_DIR/.env"
-    chmod 600 "$PROXY_DIR/.env"
     echo "Created proxy/.env."
     return 0
   fi
 
   if ! grep -q '^SHARED_MYSQL_ROOT_PASSWORD=' "$PROXY_DIR/.env"; then
-    root_password="$(prompt_secret "Shared MariaDB root password")"
-    printf "SHARED_MYSQL_ROOT_PASSWORD='%s'\n" "$root_password" >> "$PROXY_DIR/.env"
+    root_password="$(prompt_required "Shared MariaDB root password")"
+    printf "SHARED_MYSQL_ROOT_PASSWORD=%s\n" "$root_password" >> "$PROXY_DIR/.env"
     echo "Added SHARED_MYSQL_ROOT_PASSWORD to proxy/.env."
   fi
-  chmod 600 "$PROXY_DIR/.env"
 }
 
 ensure_site_dir() {
@@ -355,25 +321,6 @@ ensure_site_dir() {
   fi
 }
 
-update_managed_site_files() {
-  site_folder="$1"
-  site_dir="$ROOT_DIR/sites/$site_folder"
-  compose_file="$site_dir/docker-compose.yml"
-
-  # Keep site-specific Compose changes, including manual SSL, while removing the
-  # old startup gate that prevented nginx from running when wp-cli failed.
-  if grep -A1 '^[[:space:]]*wpcli:$' "$compose_file" | grep -q 'condition: service_completed_successfully'; then
-    tmp="$compose_file.tmp"
-    sed '/^[[:space:]]*wpcli:$/ { N; /condition: service_completed_successfully/d; }' "$compose_file" > "$tmp"
-    mv "$tmp" "$compose_file"
-    echo "Updated the website startup dependency."
-  fi
-
-  cp "$TEMPLATE_DIR/nginx.conf.template" "$site_dir/nginx.conf.template"
-  mkdir -p "$site_dir/php"
-  cp "$TEMPLATE_DIR/php/uploads.ini" "$site_dir/php/uploads.ini"
-}
-
 write_site_env_interactive() {
   site_folder="$1"
   project_name="$2"
@@ -389,7 +336,7 @@ write_site_env_interactive() {
   email="$(prompt_required "SSL certificate email")"
   site_title="$(prompt_required "WordPress site title")"
   admin_user="$(prompt_default "WordPress admin username" "admin")"
-  admin_password="$(prompt_secret "WordPress admin password")"
+  admin_password="$(prompt_required "WordPress admin password")"
   admin_email="$(prompt_default "WordPress admin email" "$email")"
   wp_version="$(prompt_default "WordPress version" "6.9.4")"
   php_version="$(prompt_default "PHP version" "8.3")"
@@ -403,7 +350,7 @@ write_site_env_interactive() {
     echo "Use lowercase letters, numbers, and underscores. Start with a letter or underscore."
     db_user="$(prompt_required "Website database username")"
   done
-  db_password="$(prompt_secret "Website database password")"
+  db_password="$(prompt_required "Website database password")"
 
   cat > "$env_file" <<EOF
 DOMAIN=$domain
@@ -416,15 +363,13 @@ PHP_VERSION=$php_version
 WORDPRESS_URL=https://$primary_domain
 WORDPRESS_SITE_TITLE="$site_title"
 WORDPRESS_ADMIN_USER=$admin_user
-WORDPRESS_ADMIN_PASSWORD='$admin_password'
+WORDPRESS_ADMIN_PASSWORD=$admin_password
 WORDPRESS_ADMIN_EMAIL=$admin_email
 
 WORDPRESS_DB_NAME=$db_name
 WORDPRESS_DB_USER=$db_user
-WORDPRESS_DB_PASSWORD='$db_password'
+WORDPRESS_DB_PASSWORD=$db_password
 EOF
-
-  chmod 600 "$env_file"
 
   echo "Saved $env_file."
 }
@@ -454,7 +399,6 @@ ensure_site_env() {
       exit 1
     fi
   fi
-  chmod 600 "$env_file"
 }
 
 check_site_dns() {
@@ -891,11 +835,6 @@ if [ -d /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage ]; then
   find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type d -exec chmod 775 {} \;
   find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type f -exec chmod 664 {} \;
 fi
-# Static Nginx and PHP-FPM use different container UIDs, so shared content must
-# remain traversable/readable. Only the credential-bearing config is restricted.
-find /var/www/html -xdev -type f -name "*.php" -exec chmod 644 {} \;
-find /var/www/html -xdev -type d -exec chmod 755 {} \;
-chmod 640 /var/www/html/wp-config.php
 '); then
     echo "Error: could not fix permissions. Make sure the website containers are running."
     echo "Check status:"
@@ -903,51 +842,7 @@ chmod 640 /var/www/html/wp-config.php
     exit 1
   fi
 
-  echo "Applying WordPress production constants..."
-  run_wp "$site_dir" "$project_name" config set DISALLOW_FILE_EDIT true --raw
-  run_wp "$site_dir" "$project_name" config set FORCE_SSL_ADMIN true --raw
-  run_wp "$site_dir" "$project_name" config set WP_DEBUG false --raw
-  run_wp "$site_dir" "$project_name" config set WP_DEBUG_DISPLAY false --raw
-  (cd "$site_dir" && docker compose -p "$project_name" exec -T wordpress chmod 640 /var/www/html/wp-config.php)
-
-  echo "Permissions and WordPress production constants applied."
-}
-
-wait_for_wpcli() {
-  site_folder="$1"
-  project_name="$2"
-  site_dir="$ROOT_DIR/sites/$site_folder"
-  attempts=0
-
-  echo "Waiting for the WordPress installer to finish..."
-  while [ "$attempts" -lt 90 ]; do
-    container_id="$(cd "$site_dir" && docker compose -p "$project_name" ps -aq wpcli)"
-    if [ -n "$container_id" ]; then
-      status="$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null || true)"
-      case "$status" in
-        exited)
-          exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$container_id")"
-          if [ "$exit_code" -eq 0 ]; then
-            echo "WordPress installer completed."
-            return 0
-          fi
-          echo "Error: WordPress installer exited with code $exit_code."
-          (cd "$site_dir" && docker compose -p "$project_name" logs --tail=200 wpcli) || true
-          return 1
-          ;;
-        dead)
-          echo "Error: WordPress installer container stopped unexpectedly."
-          return 1
-          ;;
-      esac
-    fi
-    attempts=$((attempts + 1))
-    sleep 2
-  done
-
-  echo "Error: WordPress installer did not finish within 180 seconds."
-  (cd "$site_dir" && docker compose -p "$project_name" logs --tail=200 wpcli) || true
-  return 1
+  echo "Permissions fixed."
 }
 
 deploy_site() {
@@ -966,7 +861,6 @@ deploy_site() {
   fi
 
   ensure_site_dir "$site_folder"
-  update_managed_site_files "$site_folder"
   ensure_site_env "$site_folder" "$project_name"
   check_site_dns "$site_folder"
 
@@ -999,11 +893,6 @@ deploy_site() {
     echo "  sh deploy-site.sh $site_folder $project_name"
     echo
     echo "Do not use down -v in the proxy folder on a live server unless you intend to delete all shared database data."
-    exit 1
-  fi
-
-  if ! wait_for_wpcli "$site_folder" "$project_name"; then
-    echo "The web container is running, but WordPress installation failed. Fix the error above and rerun this deploy."
     exit 1
   fi
 

@@ -120,6 +120,8 @@ services:
     depends_on:
       wordpress:
         condition: service_started
+      wpcli:
+        condition: service_completed_successfully
     ports:
       - 80:80
       - 443:443

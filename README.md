@@ -22,7 +22,7 @@ Internet :80 / :443
 | Component | Location | Role |
 |-----------|----------|------|
 | Public web entry | `proxy/` | Only stack that publishes ports `80` and `443` |
-| SSL certificates | `proxy/` (acme-companion + ZeroSSL) | Issues HTTPS for every site domain |
+| SSL certificates | `proxy/` (acme-companion + Let's Encrypt) | Issues HTTPS for every site domain |
 | Shared database | `proxy/` (MariaDB) | One container; separate DB per website |
 | Website stack | `sites/<name>/` | WordPress FPM, wp-cli installer, internal nginx |
 
@@ -111,7 +111,7 @@ Choose **1) Add a new website or update an existing website**.
 | Apex domain | `modernpack.lk` | No `https://` prefix |
 | WWW domain | `www.modernpack.lk` | |
 | Primary domain | `www.modernpack.lk` | Used for `WORDPRESS_URL` |
-| SSL email | `you@example.com` | ZeroSSL / Let's Encrypt contact |
+| SSL email | `you@example.com` | Let's Encrypt contact |
 | WordPress title / admin / DB values | your choice | Saved to `sites/<folder>/.env` |
 
 Direct command (same as the guided flow):
@@ -481,4 +481,9 @@ Example: `wordpress:6.9.4-php8.3-fpm`
 ## Related docs
 
 - `wordpress-site-db-import-runbook.md` — import an existing WordPress database
+- `ALL-IN-ONE-LIVE-DEPLOYMENT.md` — deploy a `.wpress` backup safely to production
+- `UPDATE-RUNBOOK.md` — controlled WordPress/PHP/Nginx updates and rollback
+- `update-site.sh` — check or apply component updates with backups and health checks
+- `SECURITY.md` — mandatory production launch and recurring VA baseline
+- `security-audit.sh` — repeatable host/container checks; production requires zero failures
 - `deploy-site.sh help` — command-line usage

@@ -1,6 +1,13 @@
 server {
     listen 80;
     server_name ${DOMAIN} ${WWW_DOMAIN};
+    server_tokens off;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     if ($host != ${PRIMARY_DOMAIN}) {
         return 301 https://${PRIMARY_DOMAIN}$request_uri;
@@ -15,7 +22,25 @@ server {
         try_files $uri $uri/ /index.php?$args;
     }
 
+    location ~* ^/(?:wp-config\.php|readme\.html|license\.txt)$ {
+        deny all;
+    }
+
+    # Never serve database dumps, editor backups, logs, or deployment secrets.
+    location ~* \.(?:bak|conf|dist|fla|git|inc|ini|log|orig|psd|sh|sql|swp|tmp|yml|yaml)(?:\.|$) {
+        deny all;
+    }
+
+    location ~* ^/wp-content/(?:ai1wm-backups|backup|backups|cache|upgrade)(?:/|$) {
+        deny all;
+    }
+
+    location ~* ^/(?:wp-content/)?(?:uploads|files)/.*\.php$ {
+        deny all;
+    }
+
     location ~ \.php$ {
+        try_files $uri =404;
         fastcgi_pass wordpress:9000;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME /var/www/html$fastcgi_script_name;
@@ -45,7 +70,11 @@ server {
         log_not_found off;
     }
 
-    location ~ /\.ht {
+    location ~ "(^|/)\." {
+        deny all;
+    }
+
+    location = /xmlrpc.php {
         deny all;
     }
 }

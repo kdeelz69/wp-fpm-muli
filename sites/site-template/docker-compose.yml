@@ -2,6 +2,9 @@ services:
   wordpress:
     image: wordpress:${WORDPRESS_VERSION}-php${PHP_VERSION}-fpm
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     environment:
       WORDPRESS_DB_HOST: shared_mariadb:3306
       WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
@@ -17,6 +20,8 @@ services:
   wpcli:
     image: wordpress:cli-php${PHP_VERSION}
     restart: "no"
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       wordpress:
         condition: service_started
@@ -94,11 +99,20 @@ services:
   nginx:
     image: nginx:stable
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    pids_limit: 128
     depends_on:
       wordpress:
         condition: service_started
-      wpcli:
-        condition: service_completed_successfully
     environment:
       DOMAIN: ${DOMAIN}
       WWW_DOMAIN: ${WWW_DOMAIN}

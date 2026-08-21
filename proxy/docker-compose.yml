@@ -3,6 +3,9 @@ services:
     image: nginxproxy/nginx-proxy:alpine
     container_name: shared_nginx_proxy
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     ports:
       - "80:80"
       - "443:443"
@@ -18,12 +21,14 @@ services:
     image: nginxproxy/acme-companion:2.5.2
     container_name: shared_acme_companion
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
     depends_on:
       - nginx-proxy
     environment:
       DEFAULT_EMAIL: ${DEFAULT_EMAIL}
       NGINX_PROXY_CONTAINER: shared_nginx_proxy
-      ACME_CA_URI: https://acme.zerossl.com/v2/DV90
     volumes:
       - certs:/etc/nginx/certs:rw
       - vhost:/etc/nginx/vhost.d
@@ -37,12 +42,18 @@ services:
     image: mariadb:10.11
     container_name: shared_mariadb
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
     environment:
       MYSQL_ROOT_PASSWORD: ${SHARED_MYSQL_ROOT_PASSWORD}
     ports:
       - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_PORT:-3306}:3306"
     volumes:
       - db_data:/var/lib/mysql
+    command:
+      - --local-infile=0
+      - --skip-name-resolve
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
       interval: 5s

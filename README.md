@@ -481,4 +481,9 @@ Example: `wordpress:6.9.4-php8.3-fpm`
 ## Related docs
 
 - `wordpress-site-db-import-runbook.md` — import an existing WordPress database
+- `ALL-IN-ONE-LIVE-DEPLOYMENT.md` — deploy a `.wpress` backup safely to production
+- `UPDATE-RUNBOOK.md` — controlled WordPress/PHP/Nginx updates and rollback
+- `update-site.sh` — check or apply component updates with backups and health checks
+- `SECURITY.md` — mandatory production launch and recurring VA baseline
+- `security-audit.sh` — repeatable host/container checks; production requires zero failures
 - `deploy-site.sh help` — command-line usage

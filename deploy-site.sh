@@ -278,21 +278,21 @@ resolve_domain() {
 }
 
 check_dns_name() {
-  domain="$1"
+  dns_name="$1"
   expected_ip="$2"
-  actual_ip="$(resolve_domain "$domain" || true)"
+  actual_ip="$(resolve_domain "$dns_name" || true)"
 
   if [ -z "$actual_ip" ]; then
-    echo "DNS check failed: $domain does not resolve yet."
+    echo "DNS check failed: $dns_name does not resolve yet."
     return 1
   fi
 
   if [ "$actual_ip" != "$expected_ip" ]; then
-    echo "DNS check failed: $domain resolves to $actual_ip, expected $expected_ip."
+    echo "DNS check failed: $dns_name resolves to $actual_ip, expected $expected_ip."
     return 1
   fi
 
-  echo "DNS ok: $domain -> $actual_ip"
+  echo "DNS ok: $dns_name -> $actual_ip"
   return 0
 }
 
@@ -326,6 +326,7 @@ ensure_proxy_env() {
       printf "DEFAULT_EMAIL=%s\n" "$email"
       printf "SHARED_MYSQL_ROOT_PASSWORD='%s'\n" "$root_password"
     } > "$PROXY_DIR/.env"
+    chmod 600 "$PROXY_DIR/.env"
     echo "Created proxy/.env."
     return 0
   fi
@@ -335,6 +336,7 @@ ensure_proxy_env() {
     printf "SHARED_MYSQL_ROOT_PASSWORD='%s'\n" "$root_password" >> "$PROXY_DIR/.env"
     echo "Added SHARED_MYSQL_ROOT_PASSWORD to proxy/.env."
   fi
+  chmod 600 "$PROXY_DIR/.env"
 }
 
 ensure_site_dir() {
@@ -368,6 +370,8 @@ update_managed_site_files() {
   fi
 
   cp "$TEMPLATE_DIR/nginx.conf.template" "$site_dir/nginx.conf.template"
+  mkdir -p "$site_dir/php"
+  cp "$TEMPLATE_DIR/php/uploads.ini" "$site_dir/php/uploads.ini"
 }
 
 write_site_env_interactive() {
@@ -420,6 +424,8 @@ WORDPRESS_DB_USER=$db_user
 WORDPRESS_DB_PASSWORD='$db_password'
 EOF
 
+  chmod 600 "$env_file"
+
   echo "Saved $env_file."
 }
 
@@ -448,6 +454,7 @@ ensure_site_env() {
       exit 1
     fi
   fi
+  chmod 600 "$env_file"
 }
 
 check_site_dns() {
@@ -884,6 +891,11 @@ if [ -d /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage ]; then
   find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type d -exec chmod 775 {} \;
   find /var/www/html/wp-content/plugins/all-in-one-wp-migration/storage -type f -exec chmod 664 {} \;
 fi
+# Static Nginx and PHP-FPM use different container UIDs, so shared content must
+# remain traversable/readable. Only the credential-bearing config is restricted.
+find /var/www/html -xdev -type f -name "*.php" -exec chmod 644 {} \;
+find /var/www/html -xdev -type d -exec chmod 755 {} \;
+chmod 640 /var/www/html/wp-config.php
 '); then
     echo "Error: could not fix permissions. Make sure the website containers are running."
     echo "Check status:"
@@ -891,7 +903,14 @@ fi
     exit 1
   fi
 
-  echo "Permissions fixed."
+  echo "Applying WordPress production constants..."
+  run_wp "$site_dir" "$project_name" config set DISALLOW_FILE_EDIT true --raw
+  run_wp "$site_dir" "$project_name" config set FORCE_SSL_ADMIN true --raw
+  run_wp "$site_dir" "$project_name" config set WP_DEBUG false --raw
+  run_wp "$site_dir" "$project_name" config set WP_DEBUG_DISPLAY false --raw
+  (cd "$site_dir" && docker compose -p "$project_name" exec -T wordpress chmod 640 /var/www/html/wp-config.php)
+
+  echo "Permissions and WordPress production constants applied."
 }
 
 wait_for_wpcli() {

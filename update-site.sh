@@ -71,8 +71,7 @@ case "$resolved_site" in "$resolved_sites"/*) ;; *) echo "Unsafe site path"; exi
 compose() { (cd "$SITE_DIR" && docker compose -p "$PROJECT_NAME" "$@"); }
 wp() { compose run --rm -T wpcli wp "$@" --path=/var/www/html; }
 wordpress_health() {
-  wp db check --quiet &&
-  wp eval 'echo "WordPress bootstrap passed.\n";' &&
+  wp eval 'global $wpdb; $value = $wpdb->get_var("SELECT 1"); if ((string) $value !== "1") { fwrite(STDERR, "Database health check failed.\n"); exit(1); } echo "WordPress and database bootstrap passed.\n";' &&
   wp plugin list --status=active --format=count >/dev/null
 }
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^[\"']//;s/[\"']$//"; }
@@ -98,7 +97,7 @@ echo "PHP:        $CURRENT_PHP -> $TARGET_PHP"
 compose config --quiet
 compose ps --status running --quiet wordpress | grep -q . || { echo "WordPress container is not running"; exit 1; }
 wp core is-installed
-wp db check --quiet
+wordpress_health
 wp core verify-checksums
 
 echo "\nAvailable updates:"
@@ -206,7 +205,7 @@ fi
 if [ "$update_failed" -eq 0 ]; then
   wp cache flush || true
   wp core verify-checksums || update_failed=1
-  wp db check --quiet || update_failed=1
+  wordpress_health || update_failed=1
   compose exec -T wordpress php -v || update_failed=1
   curl -fsS --retry 5 --retry-delay 3 -o /dev/null "$SITE_URL/" || update_failed=1
   curl -fsS --retry 3 --retry-delay 2 -o /dev/null "$SITE_URL/wp-login.php" || update_failed=1
